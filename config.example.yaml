@@ -1,0 +1,30 @@
+config:
+  timeout: 4h
+  commentPrefix: "Default comment"
+
+lists:
+  blocklist:
+    timeout: 3h59m54s
+    commentPrefix: "Combined blocklist entry"
+    urls:
+      - https://example.com/blocklist1.txt
+      - https://example.com/blocklist2.txt
+    files:
+      - lists/local-blocklist.txt
+    addresses:
+      - 172.16.1.0/24
+      - 8.8.8.8
+      - 172.27.0.0/21
+
+  allowlist:
+    timeout: 24h
+    commentPrefix: "Allowed networks"
+    addresses:
+      - 10.0.0.0/8
+      - 192.168.0.0/16
+
+  externallist:
+    timeout: 1h
+    commentPrefix: "External blocklist"
+    urls:
+      - https://example.com/threats.txt
