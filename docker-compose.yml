@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "8181:8080"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
     # - ./lists:/app/lists:ro  # Optional: for file-based lists
