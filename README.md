@@ -79,10 +79,9 @@ helm install mk-addrlist mk-addrlist-generator
 You can use the following script in MikroTik to automatically fetch and apply the address lists:
 
 ```routeros
-# Address List Update Script
-:local name "mk-list-fetcher"
-:local url "http://<service-ip>/lists/all"  # Or use /list/<name> for a specific list
-:local fileName "list_generated.rsc"
+:local name "mk-list-fetcher1"
+:local url "http://<address>:8181/list/testList"
+:local fileName "ListGenerated.rsc"
 
 # Log the start of the update process
 :log info "$name starting address list update"
