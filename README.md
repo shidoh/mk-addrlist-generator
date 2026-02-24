@@ -16,7 +16,7 @@ A Go service that generates MikroTik address lists from various sources (URLs, f
 
 ## Configuration
 
-The service uses a YAML configuration file. See [`config.example.yaml`](config.example.yaml) for a complete example.
+The service uses a YAML configuration file. See [`config.example.yaml`](config/config.example.yaml) for a complete example.
 
 ### Configuration Structure
 

@@ -35,4 +35,4 @@ USER appuser
 EXPOSE 8080
 
 ENTRYPOINT ["./mk-addrlist-generator"]
-CMD ["-config", "config.yaml"]
+CMD ["-config", "config/config.yaml"]
