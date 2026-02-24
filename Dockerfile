@@ -33,6 +33,7 @@ RUN adduser -D -u 1000 appuser && \
 USER appuser
 
 EXPOSE 8080
+ENV GIN_MODE=release
 
 ENTRYPOINT ["./mk-addrlist-generator"]
 CMD ["-config", "config/config.yaml"]
