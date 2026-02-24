@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -24,7 +24,7 @@ WORKDIR /app
 COPY --from=builder /app/mk-addrlist-generator .
 
 # Copy config file
-COPY config.yaml .
+#COPY config.yaml .
 
 # Create non-root user
 RUN adduser -D -u 1000 appuser && \

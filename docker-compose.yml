@@ -9,11 +9,11 @@ services:
       - "8080:8080"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-      - ./lists:/app/lists:ro  # Optional: for file-based lists
+    # - ./lists:/app/lists:ro  # Optional: for file-based lists
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/lists/all"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
+    # healthcheck:
+    #   test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/lists/all"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 5s
