@@ -39,5 +39,7 @@ jobs:
           version: latest
           args: release --clean
         env:
-          # Use a PAT with necessary permissions
+          # This needs to be a PAT with necessary permissions
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          # Also pass the token for Docker login
+          DOCKER_TOKEN: ${{ secrets.RELEASE_TOKEN }}
