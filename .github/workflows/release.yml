@@ -14,6 +14,8 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +32,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v5
@@ -38,8 +40,3 @@ jobs:
           distribution: goreleaser
           version: latest
           args: release --clean
-        env:
-          # This needs to be a PAT with necessary permissions
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          # Also pass the token for Docker login
-          DOCKER_TOKEN: ${{ secrets.RELEASE_TOKEN }}

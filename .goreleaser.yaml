@@ -37,6 +37,11 @@ dockers:
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
+    use: buildx
+    goos: linux
+    goarch: amd64
+    ids:
+      - mk-addrlist-generator
 
 checksum:
   name_template: 'checksums.txt'
