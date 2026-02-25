@@ -52,7 +52,21 @@ lists:
       - 172.27.0.0/21
 ```
 
-## Running with Docker
+## Installation
+
+### Using Pre-built Binaries
+
+You can download pre-built binaries for your platform from the [releases page](https://github.com/shidoh/mk-addrlist-generator/releases).
+
+### Using Docker
+
+The Docker image is available on GitHub Container Registry:
+
+```bash
+docker pull ghcr.io/shidoh/mk-addrlist-generator:latest
+```
+
+To run with your own configuration:
 
 1. Create a configuration file:
    ```bash
@@ -68,6 +82,14 @@ lists:
    ```bash
    docker-compose up -d
    ```
+
+### Building from Source
+
+If you prefer to build from source, you can use Go:
+
+```bash
+go install github.com/shidoh/mk-addrlist-generator@latest
+```
 
 ## Running in Kubernetes
 
