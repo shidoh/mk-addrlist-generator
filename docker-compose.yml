@@ -8,12 +8,6 @@ services:
     ports:
       - "8181:8080"
     volumes:
-      - ${PWD}/config/:/app/config/:ro
-    # - ${PWD}/lists:/app/lists:ro  # Optional: for file-based lists
+      - ./config/config.yaml:/etc/mk-addrlist-generator/config.yaml
+      - ./lists:/etc/mikrotik/lists
     restart: unless-stopped
-    # healthcheck:
-    #   test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/lists/all"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 5s

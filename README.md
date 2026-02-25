@@ -1,132 +1,148 @@
 # MikroTik Address List Generator
 
-A Go service that generates MikroTik address lists from various sources (URLs, files, or static lists) and provides them via HTTP API.
+A service that generates MikroTik address lists from various sources (URLs, files, static addresses) and provides them via HTTP API.
 
 ## Features
 
-- Generate MikroTik-compatible address list scripts
-- Multiple source types in a single list:
+- Multiple source types:
   - External URLs (HTTP/HTTPS)
   - Local files
-  - Static addresses
-- Configurable timeouts and comments per list
-- HTTP API endpoints for accessing lists
-- Support for multiple independent lists
-- Automatic deduplication of addresses
+  - Static addresses in configuration
+- Flexible timeout formats:
+  - Days (e.g., "1d", "7d")
+  - Hours and minutes (e.g., "12h30m")
+  - Minutes and seconds (e.g., "45m30s")
+  - Complex durations (e.g., "2d3h45m30s")
+- HTTP API endpoints:
+  - `/lists/all` - Get all address lists
+  - `/list/<name>` - Get a specific list by name
+- Configurable comment prefixes
+- Docker and Kubernetes support
 
 ## Configuration
 
-The service uses a YAML configuration file. See [`config.example.yaml`](config/config.example.yaml) for a complete example.
-
-### Configuration Structure
+The service is configured using a YAML file. Here's an example configuration:
 
 ```yaml
 config:
-  timeout: 4h  # Global default timeout
-  commentPrefix: "Default comment"  # Global default comment prefix
+  timeout: 1d # Default timeout for all lists
+  commentPrefix: "crowdsecurity" # Default comment prefix for all lists
 
 lists:
-  blocklist:  # List name used in API calls
-    timeout: 3h59m54s  # Optional, overrides global
-    commentPrefix: "Combined blocklist entry"  # Optional, overrides global
-    urls:  # Optional: URLs to fetch addresses from
-      - https://example.com/blocklist1.txt
-      - https://example.com/blocklist2.txt
-    files:  # Optional: Local files to read addresses from
-      - lists/local-blocklist.txt
-    addresses:  # Optional: Static addresses/networks
+  externallists:
+    timeout: 3h59m54s # Override default timeout
+    commentPrefix: "crowdsecurity/external" # Override default comment prefix
+    urls:
+      - https://lists.example.com/blocklist1.txt
+      - https://lists.example.com/blocklist2.txt
+
+  fileslist:
+    timeout: 12h30m
+    commentPrefix: "crowdsecurity/local"
+    files:
+      - /etc/mikrotik/lists/list1.txt
+      - /etc/mikrotik/lists/list2.txt
+
+  staticlist:
+    timeout: 45m30s
+    commentPrefix: "static"
+    addresses:
       - 172.16.1.0/24
       - 8.8.8.8
+      - 172.27.0.0/21
 ```
 
-Each list can combine multiple sources:
-- URLs for external blocklists
-- Files for local address lists
-- Static addresses defined in the configuration
-- Addresses are automatically deduplicated
+## Running with Docker
 
-## API Endpoints
+1. Create a configuration file:
+   ```bash
+   cp config.example.yaml config/config.yaml
+   ```
 
-- `GET /lists/all` - Returns all configured address lists
-- `GET /list/:name` - Returns a specific list by name (e.g., `/list/blocklist`)
+2. Edit the configuration file:
+   ```bash
+   vim config.yaml
+   ```
 
-## Deployment Options
+3. Start the service using Docker Compose:
+   ```bash
+   docker-compose up -d
+   ```
 
-### Local Build
+## Running in Kubernetes
+
+1. Add the Helm repository:
+   ```bash
+   helm repo add mk-addrlist-generator https://example.com/charts
+   ```
+
+2. Install the chart:
+   ```bash
+   helm install mk-addrlist-generator mk-addrlist-generator/mk-addrlist-generator
+   ```
+
+## API Usage
+
+### Get All Lists
 
 ```bash
-go build -o mk-addrlist-generator
+curl http://localhost:8080/lists/all
 ```
 
-### Docker
-
-Using Docker Compose:
-```bash
-docker-compose up --build
+Example response:
 ```
-
-### Kubernetes
-
-Using Helm:
-```bash
-helm install mk-addrlist mk-addrlist-generator
-```
-
-## MikroTik Integration
-
-### Automatic List Update Script
-
-You can use the following script in MikroTik to automatically fetch and apply the address lists:
-
-```routeros
-:local name "mk-list-fetcher1"
-:local url "http://<address>:8181/list/testList"
-:local fileName "ListGenerated.rsc"
-
-# Log the start of the update process
-:log info "$name starting address list update"
-
-# Fetch the list from the service
-:log info "$name fetching list from $url"
-/tool fetch url="$url" mode=http dst-path=$fileName
-
-# Check if the file was downloaded successfully
-:if ([:len [/file find name=$fileName]] > 0) do={
-    # Import and apply the list
-    :log info "$name importing address list"
-    /import file-name=$fileName
-    :log info "$name address list update completed"
-    
-    # Optional: Remove the temporary file
-    /file remove $fileName
-} else={
-    :log error "$name failed to fetch address list from $url"
+/ip/firewall/address-list/remove [ find where list="externallists" ];
+:global externallistsAddIP;
+:set externallistsAddIP do={
+:do { /ip/firewall/address-list/add list=externallists address=$1 comment="$2" timeout=$3; } on-error={ }
 }
+$externallistsAddIP "192.168.1.1" "crowdsecurity/external" "3h59m54s"
+$externallistsAddIP "10.0.0.0/24" "crowdsecurity/external" "3h59m54s"
+
+:set externallistsAddIP;
 ```
 
-### Scheduling Updates
+### Get Specific List
 
-To automatically update the lists periodically, add a scheduler entry:
-
-```routeros
-/system scheduler
-add interval=1h name=update-lists on-event=":global UpdateLists [:parse [/file get list_update_script.rsc contents]]; \$UpdateLists" \
-    policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon start-time=startup
+```bash
+curl http://localhost:8080/list/staticlist
 ```
 
-Replace `<service-ip>` with your service's address and adjust the interval as needed.
-
-## Example Output
-
-The service generates MikroTik-compatible scripts that look like this:
-
-```routeros
-/ip/firewall/address-list/remove [ find where list="blocklist" ];
-:global blocklistAddIP;
-:set blocklistAddIP do={
-:do { /ip/firewall/address-list/add list=blocklist address=$1 comment="$2" timeout=$3; } on-error={ }
+Example response:
+```
+/ip/firewall/address-list/remove [ find where list="staticlist" ];
+:global staticlistAddIP;
+:set staticlistAddIP do={
+:do { /ip/firewall/address-list/add list=staticlist address=$1 comment="$2" timeout=$3; } on-error={ }
 }
-$blocklistAddIP "192.168.1.0/24" "Combined blocklist entry" "4h"
-$blocklistAddIP "10.0.0.0/8" "Combined blocklist entry" "4h"
+$staticlistAddIP "172.16.1.0/24" "static" "45m30s"
+$staticlistAddIP "8.8.8.8" "static" "45m30s"
+$staticlistAddIP "172.27.0.0/21" "static" "45m30s"
 
-:set blocklistAddIP;
+:set staticlistAddIP;
+```
+
+## Development
+
+### Prerequisites
+
+- Go 1.21 or later
+- Docker (for containerization)
+- Kubernetes (for deployment)
+
+### Building
+
+```bash
+go build
+```
+
+### Testing
+
+```bash
+go test -v ./...
+```
+
+### Running Locally
+
+```bash
+./mk-addrlist-generator --config config.yaml

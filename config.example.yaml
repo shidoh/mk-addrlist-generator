@@ -1,0 +1,32 @@
+config:
+  timeout: 1d # Default timeout for all lists
+  commentPrefix: "crowdsecurity" # Default comment prefix for all lists
+
+lists:
+  externallists:
+    timeout: 3h59m54s # Override default timeout
+    commentPrefix: "crowdsecurity/external" # Override default comment prefix
+    urls:
+      - https://raw.githubusercontent.com/stamparm/ipsum/refs/heads/master/levels/4.txt
+
+  fileslist:
+    timeout: 12h30m # Example of hours and minutes format
+    commentPrefix: "crowdsecurity/local"
+    files:
+      - /etc/mikrotik/lists/list1.txt
+      - /etc/mikrotik/lists/list2.txt
+
+  staticlist:
+    timeout: 45m30s # Example of minutes and seconds format
+    commentPrefix: "static"
+    addresses:
+      - 172.16.1.0/24
+      - 8.8.8.8
+      - 172.27.0.0/21
+
+  longterm:
+    timeout: 7d # Example of days format
+    commentPrefix: "persistent"
+    addresses:
+      - 10.0.0.0/8
+      - 192.168.0.0/16

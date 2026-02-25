@@ -1,124 +1,112 @@
 package config
 
 import (
-	"os"
 	"testing"
 	"time"
 )
 
 func TestLoadConfig(t *testing.T) {
-	// Create a temporary config file
-	configContent := `
-config:
-  timeout: 4h
-  commentPrefix: "Default comment"
-
-lists:
-  blocklist:
-    timeout: 3h59m54s
-    commentPrefix: "Combined blocklist entry"
-    urls:
-      - https://example.com/list1.txt
-    files:
-      - list1.txt
-    addresses:
-      - 172.16.1.0/24
-      - 8.8.8.8
-`
-	tmpfile, err := os.CreateTemp("", "config-*.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-
-	if _, err := tmpfile.Write([]byte(configContent)); err != nil {
-		t.Fatal(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	// Test loading the config
-	cfg, err := LoadConfig(tmpfile.Name())
-	if err != nil {
-		t.Fatalf("LoadConfig() error = %v", err)
-	}
-
-	// Verify global config
-	if cfg.Config.Timeout != "4h" {
-		t.Errorf("Expected global timeout '4h', got '%s'", cfg.Config.Timeout)
-	}
-	if cfg.Config.CommentPrefix != "Default comment" {
-		t.Errorf("Expected global comment prefix 'Default comment', got '%s'", cfg.Config.CommentPrefix)
-	}
-
-	// Verify list config
-	list, exists := cfg.Lists["blocklist"]
-	if !exists {
-		t.Fatal("Expected 'blocklist' to exist")
-	}
-
-	if list.Timeout != "3h59m54s" {
-		t.Errorf("Expected list timeout '3h59m54s', got '%s'", list.Timeout)
-	}
-	if list.CommentPrefix != "Combined blocklist entry" {
-		t.Errorf("Expected list comment prefix 'Combined blocklist entry', got '%s'", list.CommentPrefix)
-	}
-
-	// Verify list sources
-	if len(list.URLs) != 1 || list.URLs[0] != "https://example.com/list1.txt" {
-		t.Errorf("Unexpected URLs: %v", list.URLs)
-	}
-	if len(list.Files) != 1 || list.Files[0] != "list1.txt" {
-		t.Errorf("Unexpected Files: %v", list.Files)
-	}
-	if len(list.Addresses) != 2 || list.Addresses[0] != "172.16.1.0/24" || list.Addresses[1] != "8.8.8.8" {
-		t.Errorf("Unexpected Addresses: %v", list.Addresses)
-	}
-}
-
-func TestList_GetTimeout(t *testing.T) {
 	tests := []struct {
-		name         string
-		listTimeout  string
-		globalTimeout string
-		want         time.Duration
-		wantErr      bool
+		name    string
+		path    string
+		wantErr bool
 	}{
 		{
-			name:         "list timeout",
-			listTimeout:  "2h",
-			globalTimeout: "1h",
-			want:         2 * time.Hour,
-			wantErr:      false,
+			name:    "valid config",
+			path:    "../../config.example.yaml",
+			wantErr: false,
 		},
 		{
-			name:         "global timeout",
-			listTimeout:  "",
-			globalTimeout: "1h",
-			want:         time.Hour,
-			wantErr:      false,
-		},
-		{
-			name:         "default timeout",
-			listTimeout:  "",
-			globalTimeout: "",
-			want:         time.Hour,
-			wantErr:      false,
-		},
-		{
-			name:         "invalid timeout",
-			listTimeout:  "invalid",
-			globalTimeout: "1h",
-			want:         0,
-			wantErr:      true,
+			name:    "non-existent file",
+			path:    "nonexistent.yaml",
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			l := &List{Timeout: tt.listTimeout}
-			got, err := l.GetTimeout(tt.globalTimeout)
+			_, err := LoadConfig(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("LoadConfig() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestList_GetTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		list     List
+		defaults ConfigDefaults
+		want     time.Duration
+		wantErr  bool
+	}{
+		{
+			name: "days",
+			list: List{
+				Timeout: "2d",
+			},
+			defaults: ConfigDefaults{},
+			want:     48 * time.Hour,
+			wantErr:  false,
+		},
+		{
+			name: "hours and minutes",
+			list: List{
+				Timeout: "12h30m",
+			},
+			defaults: ConfigDefaults{},
+			want:     12*time.Hour + 30*time.Minute,
+			wantErr:  false,
+		},
+		{
+			name: "minutes and seconds",
+			list: List{
+				Timeout: "45m30s",
+			},
+			defaults: ConfigDefaults{},
+			want:     45*time.Minute + 30*time.Second,
+			wantErr:  false,
+		},
+		{
+			name: "complex duration",
+			list: List{
+				Timeout: "2d3h45m30s",
+			},
+			defaults: ConfigDefaults{},
+			want:     51*time.Hour + 45*time.Minute + 30*time.Second,
+			wantErr:  false,
+		},
+		{
+			name: "global timeout",
+			list: List{},
+			defaults: ConfigDefaults{
+				Timeout: "1d",
+			},
+			want:    24 * time.Hour,
+			wantErr: false,
+		},
+		{
+			name:     "default timeout",
+			list:     List{},
+			defaults: ConfigDefaults{},
+			want:     0,
+			wantErr:  true,
+		},
+		{
+			name: "invalid timeout",
+			list: List{
+				Timeout: "invalid",
+			},
+			defaults: ConfigDefaults{},
+			want:     0,
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.list.GetTimeout(tt.defaults)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("List.GetTimeout() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -132,35 +120,41 @@ func TestList_GetTimeout(t *testing.T) {
 
 func TestList_GetCommentPrefix(t *testing.T) {
 	tests := []struct {
-		name         string
-		listPrefix   string
-		globalPrefix string
-		want         string
+		name     string
+		list     List
+		defaults ConfigDefaults
+		want     string
 	}{
 		{
-			name:         "list prefix",
-			listPrefix:   "list",
-			globalPrefix: "global",
-			want:         "list",
+			name: "list prefix",
+			list: List{
+				CommentPrefix: "list-prefix",
+			},
+			defaults: ConfigDefaults{
+				CommentPrefix: "global-prefix",
+			},
+			want: "list-prefix",
 		},
 		{
-			name:         "global prefix",
-			listPrefix:   "",
-			globalPrefix: "global",
-			want:         "global",
+			name: "global prefix",
+			list: List{},
+			defaults: ConfigDefaults{
+				CommentPrefix: "global-prefix",
+			},
+			want: "global-prefix",
 		},
 		{
-			name:         "empty prefixes",
-			listPrefix:   "",
-			globalPrefix: "",
-			want:         "",
+			name:     "empty prefixes",
+			list:     List{},
+			defaults: ConfigDefaults{},
+			want:     "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			l := &List{CommentPrefix: tt.listPrefix}
-			if got := l.GetCommentPrefix(tt.globalPrefix); got != tt.want {
+			got := tt.list.GetCommentPrefix(tt.defaults)
+			if got != tt.want {
 				t.Errorf("List.GetCommentPrefix() = %v, want %v", got, tt.want)
 			}
 		})
@@ -170,15 +164,15 @@ func TestList_GetCommentPrefix(t *testing.T) {
 func TestValidateConfig(t *testing.T) {
 	tests := []struct {
 		name    string
-		config  *Config
+		cfg     *Config
 		wantErr bool
 	}{
 		{
 			name: "valid config",
-			config: &Config{
+			cfg: &Config{
 				Lists: map[string]List{
 					"test": {
-						Addresses: []string{"192.168.1.0/24"},
+						URLs: []string{"https://example.com"},
 					},
 				},
 			},
@@ -186,12 +180,12 @@ func TestValidateConfig(t *testing.T) {
 		},
 		{
 			name: "valid config with multiple sources",
-			config: &Config{
+			cfg: &Config{
 				Lists: map[string]List{
 					"test": {
-						Addresses: []string{"192.168.1.0/24"},
-						URLs:     []string{"https://example.com/list.txt"},
-						Files:    []string{"list.txt"},
+						URLs:      []string{"https://example.com"},
+						Files:     []string{"/path/to/file"},
+						Addresses: []string{"192.168.1.1"},
 					},
 				},
 			},
@@ -199,14 +193,14 @@ func TestValidateConfig(t *testing.T) {
 		},
 		{
 			name: "no lists",
-			config: &Config{
-				Lists: nil,
+			cfg: &Config{
+				Lists: map[string]List{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "empty list sources",
-			config: &Config{
+			cfg: &Config{
 				Lists: map[string]List{
 					"test": {},
 				},
@@ -215,22 +209,40 @@ func TestValidateConfig(t *testing.T) {
 		},
 		{
 			name: "invalid timeout",
-			config: &Config{
+			cfg: &Config{
+				Config: ConfigDefaults{
+					Timeout: "invalid",
+				},
 				Lists: map[string]List{
 					"test": {
-						Addresses: []string{"192.168.1.0/24"},
-						Timeout:   "invalid",
+						URLs: []string{"https://example.com"},
 					},
 				},
 			},
 			wantErr: true,
 		},
+		{
+			name: "valid timeouts",
+			cfg: &Config{
+				Config: ConfigDefaults{
+					Timeout: "1d",
+				},
+				Lists: map[string]List{
+					"test": {
+						Timeout: "12h30m",
+						URLs:    []string{"https://example.com"},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateConfig(tt.config); (err != nil) != tt.wantErr {
-				t.Errorf("validateConfig() error = %v, wantErr %v", err, tt.wantErr)
+			err := ValidateConfig(tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

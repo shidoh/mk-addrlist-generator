@@ -2,14 +2,14 @@ package generator
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
+	"mk-addrlist-generator/pkg/config"
 	"net/http"
 	"os"
 	"strings"
 	"text/template"
-
-	"mk-addrlist-generator/pkg/config"
 )
 
 const scriptTemplate = `
@@ -24,6 +24,10 @@ ${{$.ListName}}AddIP "{{.Address}}" "{{.Comment}}" "{{.Timeout}}"{{end}}
 :set {{.ListName}}AddIP;
 `
 
+type Generator struct {
+	cfg *config.Config
+}
+
 type ScriptData struct {
 	ListName string
 	Entries  []Entry
@@ -35,43 +39,77 @@ type Entry struct {
 	Timeout string
 }
 
-type Generator struct {
-	config *config.Config
-}
-
 func NewGenerator(cfg *config.Config) *Generator {
-	return &Generator{config: cfg}
+	return &Generator{cfg: cfg}
 }
 
-// GenerateAll generates scripts for all configured lists
-func (g *Generator) GenerateAll() (map[string]string, error) {
-	result := make(map[string]string)
-	for name, list := range g.config.Lists {
-		script, err := g.GenerateList(name, &list)
+func (g *Generator) GenerateAll() (string, error) {
+	var result strings.Builder
+
+	for name, list := range g.cfg.Lists {
+		script, err := g.GenerateList(name, list)
 		if err != nil {
-			return nil, fmt.Errorf("error generating list %q: %w", name, err)
+			return "", fmt.Errorf("error generating list %s: %v", name, err)
 		}
-		result[name] = script
+		result.WriteString(script)
+		result.WriteString("\n")
 	}
-	return result, nil
+
+	return result.String(), nil
 }
 
-// GenerateList generates a script for a single list
-func (g *Generator) GenerateList(name string, list *config.List) (string, error) {
-	timeout, err := list.GetTimeout(g.config.Config.Timeout)
+func (g *Generator) GenerateList(name string, list config.List) (string, error) {
+	timeout, err := list.GetTimeout(g.cfg.Config)
 	if err != nil {
-		return "", fmt.Errorf("invalid timeout: %w", err)
+		return "", fmt.Errorf("error getting timeout: %v", err)
 	}
 
-	commentPrefix := list.GetCommentPrefix(g.config.Config.CommentPrefix)
-	entries, err := g.getEntries(list, commentPrefix, timeout.String())
-	if err != nil {
-		return "", err
+	commentPrefix := list.GetCommentPrefix(g.cfg.Config)
+	entries := make([]Entry, 0)
+
+	// Process URLs
+	for _, url := range list.URLs {
+		addresses, err := g.fetchAddresses(url)
+		if err != nil {
+			return "", fmt.Errorf("error fetching addresses from %s: %v", url, err)
+		}
+		for _, addr := range addresses {
+			entries = append(entries, Entry{
+				Address: addr,
+				Comment: fmt.Sprintf("%s/external", commentPrefix),
+				Timeout: timeout.String(),
+			})
+		}
 	}
 
+	// Process files
+	for _, file := range list.Files {
+		addresses, err := g.readAddresses(file)
+		if err != nil {
+			return "", fmt.Errorf("error reading addresses from %s: %v", file, err)
+		}
+		for _, addr := range addresses {
+			entries = append(entries, Entry{
+				Address: addr,
+				Comment: fmt.Sprintf("%s/file", commentPrefix),
+				Timeout: timeout.String(),
+			})
+		}
+	}
+
+	// Process static addresses
+	for _, addr := range list.Addresses {
+		entries = append(entries, Entry{
+			Address: addr,
+			Comment: fmt.Sprintf("%s/static", commentPrefix),
+			Timeout: timeout.String(),
+		})
+	}
+
+	// Generate script
 	tmpl, err := template.New("script").Parse(scriptTemplate)
 	if err != nil {
-		return "", fmt.Errorf("error parsing template: %w", err)
+		return "", fmt.Errorf("error parsing template: %v", err)
 	}
 
 	data := ScriptData{
@@ -79,116 +117,54 @@ func (g *Generator) GenerateList(name string, list *config.List) (string, error)
 		Entries:  entries,
 	}
 
-	var buf strings.Builder
+	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("error executing template: %w", err)
+		return "", fmt.Errorf("error executing template: %v", err)
 	}
 
 	return buf.String(), nil
 }
 
-// getEntries retrieves entries from all configured sources
-func (g *Generator) getEntries(list *config.List, commentPrefix, timeout string) ([]Entry, error) {
-	var allAddresses []string
-
-	// Collect addresses from external URLs
-	if len(list.URLs) > 0 {
-		addresses, err := g.getExternalAddresses(list.URLs)
-		if err != nil {
-			return nil, fmt.Errorf("error getting external addresses: %w", err)
-		}
-		allAddresses = append(allAddresses, addresses...)
+func (g *Generator) fetchAddresses(url string) ([]string, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
 	}
+	defer resp.Body.Close()
 
-	// Collect addresses from files
-	if len(list.Files) > 0 {
-		addresses, err := g.getFileAddresses(list.Files)
-		if err != nil {
-			return nil, fmt.Errorf("error getting file addresses: %w", err)
-		}
-		allAddresses = append(allAddresses, addresses...)
-	}
-
-	// Add static addresses
-	allAddresses = append(allAddresses, list.Addresses...)
-
-	// Create entries from all collected addresses
-	entries := make([]Entry, 0, len(allAddresses))
-	seen := make(map[string]bool)
-
-	for _, addr := range allAddresses {
-		if addr = strings.TrimSpace(addr); addr == "" {
-			continue
-		}
-		// Skip duplicates
-		if seen[addr] {
-			continue
-		}
-		seen[addr] = true
-		entries = append(entries, Entry{
-			Address: addr,
-			Comment: commentPrefix,
-			Timeout: timeout,
-		})
-	}
-
-	return entries, nil
+	return readAddresses(resp.Body)
 }
 
-// getExternalAddresses retrieves addresses from external URLs
-func (g *Generator) getExternalAddresses(urls []string) ([]string, error) {
-	var addresses []string
-	for _, url := range urls {
-		resp, err := http.Get(url)
-		if err != nil {
-			return nil, fmt.Errorf("error fetching URL %q: %w", url, err)
-		}
-		defer resp.Body.Close()
-
-		addrs, err := readAddresses(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("error reading addresses from URL %q: %w", url, err)
-		}
-		addresses = append(addresses, addrs...)
+func (g *Generator) readAddresses(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
-	return addresses, nil
+	defer file.Close()
+
+	return readAddresses(file)
 }
 
-// getFileAddresses retrieves addresses from files
-func (g *Generator) getFileAddresses(paths []string) ([]string, error) {
-	var addresses []string
-	for _, path := range paths {
-		file, err := os.Open(path)
-		if err != nil {
-			return nil, fmt.Errorf("error opening file %q: %w", path, err)
-		}
-		defer file.Close()
-
-		addrs, err := readAddresses(file)
-		if err != nil {
-			return nil, fmt.Errorf("error reading addresses from file %q: %w", path, err)
-		}
-		addresses = append(addresses, addrs...)
-	}
-	return addresses, nil
-}
-
-// readAddresses reads addresses line by line from a reader
 func readAddresses(r io.Reader) ([]string, error) {
 	var addresses []string
 	scanner := bufio.NewScanner(r)
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		// Remove inline comments
-		if idx := strings.Index(line, "#"); idx >= 0 {
-			line = strings.TrimSpace(line[:idx])
-		}
-		if line != "" {
-			addresses = append(addresses, line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			// Remove inline comments
+			if idx := strings.Index(line, "#"); idx != -1 {
+				line = strings.TrimSpace(line[:idx])
+			}
+			if line != "" {
+				addresses = append(addresses, line)
+			}
 		}
 	}
-	return addresses, scanner.Err()
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return addresses, nil
 }

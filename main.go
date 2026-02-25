@@ -4,31 +4,47 @@ import (
 	"flag"
 	"fmt"
 	"log"
-
-	"github.com/gin-gonic/gin"
 	"mk-addrlist-generator/pkg/api"
 	"mk-addrlist-generator/pkg/config"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
+	// Parse command line flags
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
-	port := flag.String("port", "8080", "Port to listen on")
+	listenAddr := flag.String("listen", ":8080", "Address to listen on")
 	flag.Parse()
 
 	// Load configuration
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Error loading configuration: %v", err)
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Setup HTTP server
-	r := gin.Default()
-	server := api.NewServer(cfg)
-	server.SetupRoutes(r)
+	// Validate configuration
+	if err := config.ValidateConfig(cfg); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
 
-	// Start server
-	log.Printf("Starting server on port %s", *port)
-	if err := r.Run(fmt.Sprintf(":%s", *port)); err != nil {
-		log.Fatalf("Error starting server: %v", err)
+	// Create and start HTTP server
+	server := api.NewServer(cfg)
+	go func() {
+		if err := server.Start(*listenAddr); err != nil {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	fmt.Printf("Server started on %s\n", *listenAddr)
+
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	fmt.Println("\nShutting down server...")
+	if err := server.Stop(); err != nil {
+		log.Printf("Error during shutdown: %v", err)
 	}
 }

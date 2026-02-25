@@ -1,10 +1,10 @@
-# Build stage
-FROM golang:1.26-alpine AS builder
+FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-# Copy go mod and sum files
-COPY go.mod go.sum ./
+# Copy go.mod and go.sum files
+COPY go.mod ./
+COPY go.sum ./
 
 # Download dependencies
 RUN go mod download
@@ -15,27 +15,17 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -o mk-addrlist-generator
 
-# Final stage
 FROM alpine:3.19
 
 WORKDIR /app
 
-# Copy binary from builder
+# Copy the binary from builder
 COPY --from=builder /app/mk-addrlist-generator .
 
-# Copy config file
-#COPY config.yaml .
-
-# Create non-root user
-RUN adduser -D -u 1000 appuser && \
-    chown -R appuser:appuser /app
-
-USER appuser
-
-ENV GIN_MODE=release
-
+# Create directory for configuration
+RUN mkdir -p /etc/mk-addrlist-generator
 EXPOSE 8080
-
-
-ENTRYPOINT ["./mk-addrlist-generator"]
-CMD ["-config", "config/config.yaml"]
+ENV GIN_MODE=release
+# Set the binary as the entrypoint
+ENTRYPOINT ["/app/mk-addrlist-generator"]
+CMD ["--config", "/etc/mk-addrlist-generator/config.yaml"]
