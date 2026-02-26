@@ -40,6 +40,11 @@ dockers:
     use: buildx
     goos: linux
     goarch: amd64
+    extra_files:
+      - go.mod
+      - go.sum
+      - main.go
+      - pkg/
 
 checksum:
   name_template: 'checksums.txt'
