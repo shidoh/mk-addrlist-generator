@@ -7,7 +7,7 @@ on:
     branches: [ main, master, develop ]
 
 env:
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.26'
 
 jobs:
   lint:
