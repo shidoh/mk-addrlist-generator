@@ -29,7 +29,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o mk-addrlist-generator .
 
 # Runtime stage
-FROM --platform=$TARGETPLATFORM alpine:3.19
+FROM alpine:3.19
 
 # Install ca-certificates for HTTPS requests and tzdata for timezones
 RUN apk add --no-cache ca-certificates tzdata
