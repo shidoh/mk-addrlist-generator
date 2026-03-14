@@ -36,3 +36,6 @@ go.work
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Auto Claude data directory
+.auto-claude/
