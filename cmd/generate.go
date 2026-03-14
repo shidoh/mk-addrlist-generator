@@ -97,7 +97,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 
 	// Output
 	if outputFile != "" {
-		if err := os.WriteFile(outputFile, []byte(output), 0644); err != nil {
+		if err := os.WriteFile(outputFile, []byte(output), 0600); err != nil {
 			return fmt.Errorf("failed to write output file: %w", err)
 		}
 		if verbose {

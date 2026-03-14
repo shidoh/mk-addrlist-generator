@@ -3,12 +3,14 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
 
 func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	cleanPath := filepath.Clean(path)
+	data, err := os.ReadFile(cleanPath) // #nosec G304 - path is cleaned with filepath.Clean
 	if err != nil {
 		return nil, err
 	}

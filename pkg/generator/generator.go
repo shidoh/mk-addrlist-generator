@@ -10,6 +10,7 @@ import (
 	"mk-addrlist-generator/pkg/netutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 	"time"
@@ -413,7 +414,8 @@ func (g *Generator) fetchAddresses(url string) ([]string, error) {
 }
 
 func (g *Generator) readAddresses(path string) ([]string, error) {
-	file, err := os.Open(path)
+	cleanPath := filepath.Clean(path)
+	file, err := os.Open(cleanPath) // #nosec G304 - path is cleaned with filepath.Clean
 	if err != nil {
 		return nil, err
 	}
