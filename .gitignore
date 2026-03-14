@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-mk-addrlist-generator
+/mk-addrlist-generator
 
 # Test data
 config.yaml

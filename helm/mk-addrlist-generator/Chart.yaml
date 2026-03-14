@@ -1,0 +1,15 @@
+apiVersion: v2
+name: mk-addrlist-generator
+description: A Helm chart for MikroTik Address List Generator
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - mikrotik
+  - address-list
+  - generator
+home: https://github.com/shidoh/mk-addrlist-generator
+sources:
+  - https://github.com/shidoh/mk-addrlist-generator
+maintainers:
+  - name: shidoh
