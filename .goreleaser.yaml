@@ -1,24 +1,44 @@
+version: 2
+
 before:
   hooks:
     - go mod tidy
+    - go generate ./...
 
 builds:
-  - env:
+  - id: mk-addrlist-generator
+    main: .
+    binary: mk-addrlist-generator
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
+      - windows
       - darwin
     goarch:
       - amd64
       - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.buildTime={{.Date}}
+      - -X main.gitCommit={{.Commit}}
 
 archives:
-  - format: tar.gz
+  - id: default
+    format: tar.gz
     name_template: >-
       {{ .ProjectName }}_
-      {{- title .Os }}_
+      {{- .Version }}_
+      {{- .Os }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
@@ -26,37 +46,116 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
-
-dockers:
-  - image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest"
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-    use: buildx
-    goos: linux
-    goarch: amd64
-    extra_files:
-      - go.mod
-      - go.sum
-      - main.go
-      - pkg/
+    files:
+      - README.md
+      - LICENSE
+      - config.example.yaml
 
 checksum:
   name_template: 'checksums.txt'
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
+  use: github
   filters:
     exclude:
       - '^docs:'
       - '^test:'
       - '^ci:'
       - '^chore:'
+      - Merge pull request
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+    name: mk-addrlist-generator
+  prerelease: auto
+  mode: replace
+  header: |
+    ## MikroTik Address List Generator {{ .Tag }}
+    
+    ### Installation
+    
+    #### Using pre-built binaries
+    Download the appropriate binary for your platform from the assets below.
+    
+    #### Using Docker
+    ```bash
+    docker pull ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}
+    ```
+    
+    #### Using Helm
+    ```bash
+    helm install mk-addrlist-generator oci://ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/charts/mk-addrlist-generator --version {{ .Version }}
+    ```
+  footer: |
+    **Full Changelog**: https://github.com/{{ .Env.GITHUB_REPOSITORY }}/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+brews:
+  - name: mk-addrlist-generator
+    repository:
+      owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+      name: homebrew-tap
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    homepage: "https://github.com/{{ .Env.GITHUB_REPOSITORY }}"
+    description: "MikroTik Address List Generator"
+    license: "MIT"
+    skip_upload: auto
+
+dockers:
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=BUILD_TIME={{ .Date }}"
+      - "--build-arg=GIT_COMMIT={{ .Commit }}"
+    goos: linux
+    goarch: amd64
+    skip_push: auto
+
+  - image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=BUILD_TIME={{ .Date }}"
+      - "--build-arg=GIT_COMMIT={{ .Commit }}"
+    goos: linux
+    goarch: arm64
+    skip_push: auto
+
+docker_manifests:
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}-arm64"
+    skip_push: auto
+
+  - name_template: "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest"
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}-amd64"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Version }}-arm64"
+    skip_push: auto

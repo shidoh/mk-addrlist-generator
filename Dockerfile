@@ -1,8 +1,20 @@
-FROM golang:1.26-alpine AS builder
+# Build stage
+FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+ARG GIT_COMMIT=unknown
 
 WORKDIR /app
 
-# Copy go.mod and go.sum files
+# Install ca-certificates for HTTPS requests
+RUN apk add --no-cache ca-certificates git
+
+# Copy go mod files
 COPY go.mod go.sum ./
 
 # Download dependencies
@@ -12,20 +24,40 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o mk-addrlist-generator
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags "-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
+    -o mk-addrlist-generator .
 
-FROM alpine:3.19
+# Runtime stage
+FROM --platform=$TARGETPLATFORM alpine:3.19
+
+# Install ca-certificates for HTTPS requests and tzdata for timezones
+RUN apk add --no-cache ca-certificates tzdata
+
+# Create non-root user
+RUN adduser -D -g '' appuser
 
 WORKDIR /app
 
-# Copy the binary from builder
+# Copy binary from builder
 COPY --from=builder /app/mk-addrlist-generator .
 
-# Create directory for configuration
-RUN mkdir -p /etc/mk-addrlist-generator
-EXPOSE 8080
-ENV GIN_MODE=release
+# Copy default config
+COPY config.example.yaml /app/config.yaml
 
-# Set the binary as the entrypoint
+# Change ownership
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Default command
 ENTRYPOINT ["/app/mk-addrlist-generator"]
-CMD ["--config", "/etc/mk-addrlist-generator/config.yaml"]
+CMD ["serve", "-c", "/app/config.yaml"]
