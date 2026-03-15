@@ -318,14 +318,14 @@ func (s *Server) HandleGetAllLists(c *gin.Context) {
 	aggregate := c.Query("aggregate") == "true"
 	deduplicate := c.DefaultQuery("deduplicate", "true") == "true"
 
-	// Update generator options
-	options := s.generator.GetOptions()
+	// Create request-scoped generator to avoid race conditions
+	options := generator.DefaultOptions()
 	options.Aggregate = aggregate
 	options.Deduplicate = deduplicate
-	s.generator.SetOptions(options)
+	gen := generator.NewGeneratorWithOptions(s.cfg, options)
 
 	start := time.Now()
-	script, err := s.generator.GenerateAllWithFormat(format)
+	script, err := gen.GenerateAllWithFormat(format)
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
@@ -361,14 +361,14 @@ func (s *Server) HandleGetListByName(c *gin.Context) {
 		return
 	}
 
-	// Update generator options
-	options := s.generator.GetOptions()
+	// Create request-scoped generator to avoid race conditions
+	options := generator.DefaultOptions()
 	options.Aggregate = aggregate
 	options.Deduplicate = deduplicate
-	s.generator.SetOptions(options)
+	gen := generator.NewGeneratorWithOptions(s.cfg, options)
 
 	start := time.Now()
-	script, err := s.generator.GenerateListWithFormat(name, list, format)
+	script, err := gen.GenerateListWithFormat(name, list, format)
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
