@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -465,4 +466,76 @@ func TestServer_Aggregate(t *testing.T) {
 	if !strings.Contains(body, "192.168.0.0/23") {
 		t.Errorf("Aggregate test should contain aggregated network, got %q", body)
 	}
+}
+
+func TestConcurrentHandlerAccess(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"list1": {
+				Addresses: []string{
+					"192.168.1.0/24",
+					"10.0.0.0/8",
+				},
+			},
+			"list2": {
+				Addresses: []string{
+					"172.16.0.0/12",
+					"203.0.113.0/24",
+				},
+			},
+		},
+	}
+
+	server := NewServer(cfg)
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+
+	// Define the endpoints and query variations to hit concurrently
+	requests := []struct {
+		method string
+		url    string
+	}{
+		{"GET", "/lists/all"},
+		{"GET", "/lists/all?format=plain"},
+		{"GET", "/lists/all?format=json"},
+		{"GET", "/lists/all?format=nftables"},
+		{"GET", "/lists/all?format=plain&aggregate=true"},
+		{"GET", "/lists/all?format=plain&deduplicate=false"},
+		{"GET", "/list/list1"},
+		{"GET", "/list/list1?format=plain"},
+		{"GET", "/list/list1?format=json"},
+		{"GET", "/list/list1?format=plain&aggregate=true"},
+		{"GET", "/list/list2"},
+		{"GET", "/list/list2?format=nftables"},
+		{"GET", "/list/list2?format=plain&aggregate=true&deduplicate=true"},
+		{"GET", "/list/nonexistent"},
+	}
+
+	wg.Add(goroutines * len(requests))
+
+	for i := 0; i < goroutines; i++ {
+		for _, r := range requests {
+			go func(method, url string) {
+				defer wg.Done()
+				w := httptest.NewRecorder()
+				req, err := http.NewRequest(method, url, nil)
+				if err != nil {
+					t.Errorf("failed to create request: %v", err)
+					return
+				}
+				server.router.ServeHTTP(w, req)
+
+				if w.Code != http.StatusOK && w.Code != http.StatusNotFound {
+					t.Errorf("unexpected status %d for %s %s", w.Code, method, url)
+				}
+			}(r.method, r.url)
+		}
+	}
+
+	wg.Wait()
 }
