@@ -93,10 +93,6 @@ define {{.ListName}}_v6 = {
 
 // GeneratorOptions configures generator behavior
 type GeneratorOptions struct {
-	// Deduplicate removes duplicate addresses within each source type
-	Deduplicate bool
-	// Aggregate merges adjacent CIDR networks
-	Aggregate bool
 	// HTTPTimeout for fetching external URLs
 	HTTPTimeout time.Duration
 }
@@ -104,9 +100,24 @@ type GeneratorOptions struct {
 // DefaultOptions returns default generator options
 func DefaultOptions() GeneratorOptions {
 	return GeneratorOptions{
-		Deduplicate: true,
-		Aggregate:   false, // Disabled by default for backward compatibility
 		HTTPTimeout: 30 * time.Second,
+	}
+}
+
+// RequestOptions configures per-request generation behavior.
+// These are not stored on the Generator — each call passes its own copy.
+type RequestOptions struct {
+	// Deduplicate removes duplicate addresses within each source type
+	Deduplicate bool
+	// Aggregate merges adjacent CIDR networks
+	Aggregate bool
+}
+
+// DefaultRequestOptions returns default per-request options
+func DefaultRequestOptions() RequestOptions {
+	return RequestOptions{
+		Deduplicate: true,
+		Aggregate:   false,
 	}
 }
 
@@ -115,6 +126,7 @@ type Generator struct {
 	options    GeneratorOptions
 	mu         sync.RWMutex
 	httpClient *http.Client
+	statsCache map[string]ListStats
 }
 
 type ScriptData struct {
@@ -151,8 +163,9 @@ func NewGenerator(cfg *config.Config) *Generator {
 
 func NewGeneratorWithOptions(cfg *config.Config, options GeneratorOptions) *Generator {
 	return &Generator{
-		cfg:     cfg,
-		options: options,
+		cfg:        cfg,
+		options:    options,
+		statsCache: make(map[string]ListStats),
 		httpClient: &http.Client{
 			Timeout: options.HTTPTimeout,
 		},
@@ -175,19 +188,19 @@ func (g *Generator) GetOptions() GeneratorOptions {
 }
 
 func (g *Generator) GenerateAll() (string, error) {
-	return g.GenerateAllWithFormat(FormatMikrotik)
+	return g.GenerateAllWithFormat(FormatMikrotik, DefaultRequestOptions())
 }
 
-func (g *Generator) GenerateAllWithFormat(format OutputFormat) (string, error) {
+func (g *Generator) GenerateAllWithFormat(format OutputFormat, reqOpts RequestOptions) (string, error) {
 	// Special handling for JSON format - combine all lists
 	if format == FormatJSON {
-		return g.generateAllJSON()
+		return g.generateAllJSON(reqOpts)
 	}
 
 	var result strings.Builder
 
 	for name, list := range g.cfg.Lists {
-		script, err := g.GenerateListWithFormat(name, list, format)
+		script, err := g.GenerateListWithFormat(name, list, format, reqOpts)
 		if err != nil {
 			return "", fmt.Errorf("error generating list %s: %v", name, err)
 		}
@@ -198,14 +211,14 @@ func (g *Generator) GenerateAllWithFormat(format OutputFormat) (string, error) {
 	return result.String(), nil
 }
 
-func (g *Generator) generateAllJSON() (string, error) {
+func (g *Generator) generateAllJSON(reqOpts RequestOptions) (string, error) {
 	output := JSONAllOutput{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Lists:     make(map[string]JSONOutput),
 	}
 
 	for name, list := range g.cfg.Lists {
-		entries, err := g.collectEntries(name, list)
+		entries, err := g.collectEntries(name, list, reqOpts)
 		if err != nil {
 			return "", fmt.Errorf("error collecting entries for list %s: %v", name, err)
 		}
@@ -227,11 +240,11 @@ func (g *Generator) generateAllJSON() (string, error) {
 }
 
 func (g *Generator) GenerateList(name string, list config.List) (string, error) {
-	return g.GenerateListWithFormat(name, list, FormatMikrotik)
+	return g.GenerateListWithFormat(name, list, FormatMikrotik, DefaultRequestOptions())
 }
 
-func (g *Generator) GenerateListWithFormat(name string, list config.List, format OutputFormat) (string, error) {
-	entries, err := g.collectEntries(name, list)
+func (g *Generator) GenerateListWithFormat(name string, list config.List, format OutputFormat, reqOpts RequestOptions) (string, error) {
+	entries, err := g.collectEntries(name, list, reqOpts)
 	if err != nil {
 		return "", err
 	}
@@ -251,11 +264,7 @@ func (g *Generator) GenerateListWithFormat(name string, list config.List, format
 	}
 }
 
-func (g *Generator) collectEntries(name string, list config.List) ([]Entry, error) {
-	g.mu.RLock()
-	opts := g.options
-	g.mu.RUnlock()
-
+func (g *Generator) collectEntries(name string, list config.List, reqOpts RequestOptions) ([]Entry, error) {
 	timeout, err := list.GetTimeout(g.cfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("error getting timeout: %v", err)
@@ -273,10 +282,10 @@ func (g *Generator) collectEntries(name string, list config.List) ([]Entry, erro
 		}
 		urlAddresses = append(urlAddresses, addresses...)
 	}
-	if opts.Deduplicate {
+	if reqOpts.Deduplicate {
 		urlAddresses = netutil.DeduplicateStrings(urlAddresses)
 	}
-	if opts.Aggregate && len(urlAddresses) > 0 {
+	if reqOpts.Aggregate && len(urlAddresses) > 0 {
 		urlAddresses, err = netutil.ParseAndAggregate(urlAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("error aggregating URL addresses: %v", err)
@@ -299,10 +308,10 @@ func (g *Generator) collectEntries(name string, list config.List) ([]Entry, erro
 		}
 		fileAddresses = append(fileAddresses, addresses...)
 	}
-	if opts.Deduplicate {
+	if reqOpts.Deduplicate {
 		fileAddresses = netutil.DeduplicateStrings(fileAddresses)
 	}
-	if opts.Aggregate && len(fileAddresses) > 0 {
+	if reqOpts.Aggregate && len(fileAddresses) > 0 {
 		fileAddresses, err = netutil.ParseAndAggregate(fileAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("error aggregating file addresses: %v", err)
@@ -318,10 +327,10 @@ func (g *Generator) collectEntries(name string, list config.List) ([]Entry, erro
 
 	// Process static addresses - with deduplication within source type
 	staticAddresses := list.Addresses
-	if opts.Deduplicate {
+	if reqOpts.Deduplicate {
 		staticAddresses = netutil.DeduplicateStrings(staticAddresses)
 	}
-	if opts.Aggregate && len(staticAddresses) > 0 {
+	if reqOpts.Aggregate && len(staticAddresses) > 0 {
 		staticAddresses, err = netutil.ParseAndAggregate(staticAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("error aggregating static addresses: %v", err)
@@ -334,6 +343,18 @@ func (g *Generator) collectEntries(name string, list config.List) ([]Entry, erro
 			Timeout: timeout.String(),
 		})
 	}
+
+	// Update stats cache with counts from this generation
+	stat := ListStats{
+		Name:          name,
+		URLEntries:    len(urlAddresses),
+		FileEntries:   len(fileAddresses),
+		StaticEntries: len(staticAddresses),
+		TotalEntries:  len(urlAddresses) + len(fileAddresses) + len(staticAddresses),
+	}
+	g.mu.Lock()
+	g.statsCache[name] = stat
+	g.mu.Unlock()
 
 	return entries, nil
 }
@@ -493,37 +514,20 @@ type ListStats struct {
 	StaticEntries int    `json:"static_entries"`
 }
 
-// GetStats returns statistics for all lists
+// GetStats returns statistics for all lists.
+// Counts reflect the last successful generation for each list.
+// Lists that have never been generated will show zero counts.
 func (g *Generator) GetStats() map[string]ListStats {
-	stats := make(map[string]ListStats)
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 
-	for name, list := range g.cfg.Lists {
-		stat := ListStats{
-			Name: name,
+	stats := make(map[string]ListStats, len(g.cfg.Lists))
+	for name := range g.cfg.Lists {
+		if s, ok := g.statsCache[name]; ok {
+			stats[name] = s
+		} else {
+			stats[name] = ListStats{Name: name}
 		}
-
-		// Count URL entries
-		for _, url := range list.URLs {
-			addresses, err := g.fetchAddresses(url)
-			if err == nil {
-				stat.URLEntries += len(addresses)
-			}
-		}
-
-		// Count file entries
-		for _, file := range list.Files {
-			addresses, err := g.readAddresses(file)
-			if err == nil {
-				stat.FileEntries += len(addresses)
-			}
-		}
-
-		// Count static entries
-		stat.StaticEntries = len(list.Addresses)
-		stat.TotalEntries = stat.URLEntries + stat.FileEntries + stat.StaticEntries
-
-		stats[name] = stat
 	}
-
 	return stats
 }

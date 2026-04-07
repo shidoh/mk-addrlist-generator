@@ -315,17 +315,13 @@ func (s *Server) HandleInfo(c *gin.Context) {
 
 func (s *Server) HandleGetAllLists(c *gin.Context) {
 	format := generator.ParseFormat(c.Query("format"))
-	aggregate := c.Query("aggregate") == "true"
-	deduplicate := c.DefaultQuery("deduplicate", "true") == "true"
-
-	// Update generator options
-	options := s.generator.GetOptions()
-	options.Aggregate = aggregate
-	options.Deduplicate = deduplicate
-	s.generator.SetOptions(options)
+	reqOpts := generator.RequestOptions{
+		Aggregate:   c.Query("aggregate") == "true",
+		Deduplicate: c.DefaultQuery("deduplicate", "true") == "true",
+	}
 
 	start := time.Now()
-	script, err := s.generator.GenerateAllWithFormat(format)
+	script, err := s.generator.GenerateAllWithFormat(format, reqOpts)
 	duration := time.Since(start).Seconds()
 
 	if err != nil {
@@ -349,8 +345,10 @@ func (s *Server) HandleGetAllLists(c *gin.Context) {
 func (s *Server) HandleGetListByName(c *gin.Context) {
 	name := c.Param("name")
 	format := generator.ParseFormat(c.Query("format"))
-	aggregate := c.Query("aggregate") == "true"
-	deduplicate := c.DefaultQuery("deduplicate", "true") == "true"
+	reqOpts := generator.RequestOptions{
+		Aggregate:   c.Query("aggregate") == "true",
+		Deduplicate: c.DefaultQuery("deduplicate", "true") == "true",
+	}
 
 	list, exists := s.cfg.Lists[name]
 	if !exists {
@@ -361,14 +359,8 @@ func (s *Server) HandleGetListByName(c *gin.Context) {
 		return
 	}
 
-	// Update generator options
-	options := s.generator.GetOptions()
-	options.Aggregate = aggregate
-	options.Deduplicate = deduplicate
-	s.generator.SetOptions(options)
-
 	start := time.Now()
-	script, err := s.generator.GenerateListWithFormat(name, list, format)
+	script, err := s.generator.GenerateListWithFormat(name, list, format, reqOpts)
 	duration := time.Since(start).Seconds()
 
 	if err != nil {

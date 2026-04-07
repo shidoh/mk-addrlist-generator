@@ -66,16 +66,15 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Create generator with options
-	options := generator.GeneratorOptions{
+	// Create generator
+	gen := generator.NewGenerator(cfg)
+
+	// Parse format and per-request options
+	format := generator.ParseFormat(outputFormat)
+	reqOpts := generator.RequestOptions{
 		Deduplicate: deduplicate,
 		Aggregate:   aggregate,
-		HTTPTimeout: generator.DefaultOptions().HTTPTimeout,
 	}
-	gen := generator.NewGeneratorWithOptions(cfg, options)
-
-	// Parse format
-	format := generator.ParseFormat(outputFormat)
 
 	var output string
 
@@ -85,10 +84,10 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 		if !exists {
 			return fmt.Errorf("list %q not found", listName)
 		}
-		output, err = gen.GenerateListWithFormat(listName, list, format)
+		output, err = gen.GenerateListWithFormat(listName, list, format, reqOpts)
 	} else {
 		// Generate all lists
-		output, err = gen.GenerateAllWithFormat(format)
+		output, err = gen.GenerateAllWithFormat(format, reqOpts)
 	}
 
 	if err != nil {

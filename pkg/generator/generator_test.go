@@ -315,7 +315,7 @@ func TestGenerator_GenerateListWithFormat_Nftables(t *testing.T) {
 
 	g := NewGenerator(cfg)
 
-	script, err := g.GenerateListWithFormat("nft", cfg.Lists["nft"], FormatNftables)
+	script, err := g.GenerateListWithFormat("nft", cfg.Lists["nft"], FormatNftables, DefaultRequestOptions())
 	if err != nil {
 		t.Fatalf("GenerateListWithFormat() error = %v", err)
 	}
