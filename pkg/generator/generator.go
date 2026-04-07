@@ -252,6 +252,10 @@ func (g *Generator) GenerateListWithFormat(name string, list config.List, format
 }
 
 func (g *Generator) collectEntries(name string, list config.List) ([]Entry, error) {
+	g.mu.RLock()
+	opts := g.options
+	g.mu.RUnlock()
+
 	timeout, err := list.GetTimeout(g.cfg.Config)
 	if err != nil {
 		return nil, fmt.Errorf("error getting timeout: %v", err)
@@ -269,10 +273,10 @@ func (g *Generator) collectEntries(name string, list config.List) ([]Entry, erro
 		}
 		urlAddresses = append(urlAddresses, addresses...)
 	}
-	if g.options.Deduplicate {
+	if opts.Deduplicate {
 		urlAddresses = netutil.DeduplicateStrings(urlAddresses)
 	}
-	if g.options.Aggregate && len(urlAddresses) > 0 {
+	if opts.Aggregate && len(urlAddresses) > 0 {
 		urlAddresses, err = netutil.ParseAndAggregate(urlAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("error aggregating URL addresses: %v", err)
@@ -295,10 +299,10 @@ func (g *Generator) collectEntries(name string, list config.List) ([]Entry, erro
 		}
 		fileAddresses = append(fileAddresses, addresses...)
 	}
-	if g.options.Deduplicate {
+	if opts.Deduplicate {
 		fileAddresses = netutil.DeduplicateStrings(fileAddresses)
 	}
-	if g.options.Aggregate && len(fileAddresses) > 0 {
+	if opts.Aggregate && len(fileAddresses) > 0 {
 		fileAddresses, err = netutil.ParseAndAggregate(fileAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("error aggregating file addresses: %v", err)
@@ -314,10 +318,10 @@ func (g *Generator) collectEntries(name string, list config.List) ([]Entry, erro
 
 	// Process static addresses - with deduplication within source type
 	staticAddresses := list.Addresses
-	if g.options.Deduplicate {
+	if opts.Deduplicate {
 		staticAddresses = netutil.DeduplicateStrings(staticAddresses)
 	}
-	if g.options.Aggregate && len(staticAddresses) > 0 {
+	if opts.Aggregate && len(staticAddresses) > 0 {
 		staticAddresses, err = netutil.ParseAndAggregate(staticAddresses)
 		if err != nil {
 			return nil, fmt.Errorf("error aggregating static addresses: %v", err)
