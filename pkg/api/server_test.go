@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -465,4 +466,256 @@ func TestServer_Aggregate(t *testing.T) {
 	if !strings.Contains(body, "192.168.0.0/23") {
 		t.Errorf("Aggregate test should contain aggregated network, got %q", body)
 	}
+}
+
+func TestServer_HandleGetAllLists_MixedIPv6(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"mixed": {
+				Addresses: []string{
+					"192.168.1.1",
+					"10.0.0.0/24",
+					"2001:db8::1",
+					"2001:db8:1::/48",
+				},
+			},
+		},
+	}
+
+	server := NewServer(cfg)
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/lists/all", nil)
+	server.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("HandleGetAllLists() status = %v, want %v", w.Code, http.StatusOK)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "/ip/firewall/address-list") {
+		t.Errorf("body should contain /ip/firewall/address-list section, got %q", body)
+	}
+	if !strings.Contains(body, "/ipv6/firewall/address-list") {
+		t.Errorf("body should contain /ipv6/firewall/address-list section, got %q", body)
+	}
+}
+
+func TestServer_HandleGetListByName_IPv6(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"v6list": {
+				Addresses: []string{
+					"2001:db8::1",
+					"fe80::/10",
+				},
+			},
+		},
+	}
+
+	server := NewServer(cfg)
+
+	tests := []struct {
+		name         string
+		listName     string
+		format       string
+		wantStatus   int
+		wantContains []string
+	}{
+		{
+			name:       "ipv6 list mikrotik format",
+			listName:   "v6list",
+			format:     "",
+			wantStatus: http.StatusOK,
+			wantContains: []string{
+				"/ipv6/firewall/address-list",
+				"2001:db8::1",
+				"fe80::/10",
+			},
+		},
+		{
+			name:       "ipv6 list plain format",
+			listName:   "v6list",
+			format:     "plain",
+			wantStatus: http.StatusOK,
+			wantContains: []string{
+				"2001:db8::1",
+				"fe80::/10",
+			},
+		},
+		{
+			name:       "ipv6 list json format",
+			listName:   "v6list",
+			format:     "json",
+			wantStatus: http.StatusOK,
+			wantContains: []string{
+				"2001:db8::1",
+			},
+		},
+		{
+			name:       "non-existent list",
+			listName:   "nonexistent",
+			format:     "",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			url := "/list/" + tt.listName
+			if tt.format != "" {
+				url += "?format=" + tt.format
+			}
+			req, _ := http.NewRequest("GET", url, nil)
+			server.router.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Errorf("status = %v, want %v", w.Code, tt.wantStatus)
+			}
+
+			body := w.Body.String()
+			for _, want := range tt.wantContains {
+				if !strings.Contains(body, want) {
+					t.Errorf("body should contain %q, got %q", want, body)
+				}
+			}
+		})
+	}
+}
+
+func TestServer_HandleGetAllListsWithFormat_IPv6(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"mixed": {
+				Addresses: []string{
+					"192.168.1.1",
+					"2001:db8::1",
+				},
+			},
+		},
+	}
+
+	server := NewServer(cfg)
+
+	tests := []struct {
+		name         string
+		format       string
+		wantContains []string
+	}{
+		{
+			name:   "mikrotik format with IPv6 has both sections",
+			format: "mikrotik",
+			wantContains: []string{
+				"/ip/firewall/address-list",
+				"/ipv6/firewall/address-list",
+			},
+		},
+		{
+			name:   "plain format with IPv6",
+			format: "plain",
+			wantContains: []string{
+				"192.168.1.1",
+				"2001:db8::1",
+			},
+		},
+		{
+			name:   "nftables format with IPv6",
+			format: "nftables",
+			wantContains: []string{
+				"define mixed_v4",
+				"define mixed_v6",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			url := "/lists/all?format=" + tt.format
+			req, _ := http.NewRequest("GET", url, nil)
+			server.router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("status = %v, want %v", w.Code, http.StatusOK)
+			}
+
+			body := w.Body.String()
+			for _, want := range tt.wantContains {
+				if !strings.Contains(body, want) {
+					t.Errorf("body should contain %q, got %q", want, body)
+				}
+			}
+		})
+	}
+}
+
+func TestConcurrentHandlerAccess(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"list1": {
+				Addresses: []string{
+					"192.168.1.1",
+					"10.0.0.0/24",
+					"2001:db8::1",
+					"2001:db8:1::/48",
+				},
+			},
+			"list2": {
+				Addresses: []string{
+					"172.16.0.0/12",
+					"fe80::1",
+					"fd00::/8",
+				},
+			},
+		},
+	}
+
+	server := NewServer(cfg)
+
+	endpoints := []string{
+		"/lists/all",
+		"/lists/all?format=mikrotik",
+		"/lists/all?format=plain",
+		"/lists/all?format=json",
+		"/lists/all?format=nftables",
+		"/list/list1",
+		"/list/list1?format=plain",
+		"/list/list2",
+		"/list/list2?format=json",
+		"/health",
+		"/stats",
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			endpoint := endpoints[idx%len(endpoints)]
+			w := httptest.NewRecorder()
+			req, _ := http.NewRequest("GET", endpoint, nil)
+			server.router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("concurrent request to %s: status = %v, want %v", endpoint, w.Code, http.StatusOK)
+			}
+		}(i)
+	}
+	wg.Wait()
 }
