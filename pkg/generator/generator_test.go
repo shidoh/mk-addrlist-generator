@@ -126,6 +126,36 @@ func TestReadAddresses(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:  "ipv6 addresses",
+			input: "2001:db8::1\n2001:db8:1::/48\nfe80::1",
+			want: []string{
+				"2001:db8::1",
+				"2001:db8:1::/48",
+				"fe80::1",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "mixed ipv4 and ipv6",
+			input: "192.168.1.1\n2001:db8::1\n10.0.0.0/24\n2001:db8:1::/48",
+			want: []string{
+				"192.168.1.1",
+				"2001:db8::1",
+				"10.0.0.0/24",
+				"2001:db8:1::/48",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "ipv6 with comments",
+			input: "2001:db8::1 # IPv6 address\n# Comment\nfe80::1",
+			want: []string{
+				"2001:db8::1",
+				"fe80::1",
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -140,6 +170,176 @@ func TestReadAddresses(t *testing.T) {
 				t.Errorf("readAddresses() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGenerator_GenerateList_MixedIPv4IPv6(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"mixed": {
+				Addresses: []string{
+					"192.168.1.1",
+					"2001:db8::1",
+					"10.0.0.0/24",
+					"2001:db8:1::/48",
+				},
+			},
+		},
+	}
+
+	g := NewGenerator(cfg)
+
+	script, err := g.GenerateList("mixed", cfg.Lists["mixed"])
+	if err != nil {
+		t.Fatalf("GenerateList() error = %v", err)
+	}
+
+	// Must contain IPv4 section
+	if !strings.Contains(script, `/ip/firewall/address-list/remove [ find where list="mixed" ]`) {
+		t.Error("script does not contain IPv4 address-list remove command")
+	}
+	if !strings.Contains(script, `$mixedAddIP "192.168.1.1"`) {
+		t.Error("script does not contain IPv4 address entry")
+	}
+	if !strings.Contains(script, `$mixedAddIP "10.0.0.0/24"`) {
+		t.Error("script does not contain IPv4 CIDR entry")
+	}
+
+	// Must contain IPv6 section
+	if !strings.Contains(script, `/ipv6/firewall/address-list/remove [ find where list="mixed" ]`) {
+		t.Error("script does not contain IPv6 address-list remove command")
+	}
+	if !strings.Contains(script, `$mixedAddIPv6 "2001:db8::1"`) {
+		t.Error("script does not contain IPv6 address entry")
+	}
+	if !strings.Contains(script, `$mixedAddIPv6 "2001:db8:1::/48"`) {
+		t.Error("script does not contain IPv6 CIDR entry")
+	}
+}
+
+func TestGenerator_GenerateList_IPv6Only(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"v6only": {
+				Addresses: []string{
+					"2001:db8::1",
+					"fe80::1",
+				},
+			},
+		},
+	}
+
+	g := NewGenerator(cfg)
+
+	script, err := g.GenerateList("v6only", cfg.Lists["v6only"])
+	if err != nil {
+		t.Fatalf("GenerateList() error = %v", err)
+	}
+
+	// Must contain IPv6 section
+	if !strings.Contains(script, `/ipv6/firewall/address-list/remove [ find where list="v6only" ]`) {
+		t.Error("script does not contain IPv6 address-list remove command")
+	}
+	if !strings.Contains(script, `$v6onlyAddIPv6 "2001:db8::1"`) {
+		t.Error("script does not contain IPv6 entry")
+	}
+
+	// Must NOT contain IPv4 section
+	if strings.Contains(script, `/ip/firewall/address-list`) {
+		t.Error("script should not contain IPv4 address-list commands for IPv6-only config")
+	}
+}
+
+func TestGenerator_GenerateList_IPv4Only(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"v4only": {
+				Addresses: []string{
+					"192.168.1.1",
+					"10.0.0.0/24",
+				},
+			},
+		},
+	}
+
+	g := NewGenerator(cfg)
+
+	script, err := g.GenerateList("v4only", cfg.Lists["v4only"])
+	if err != nil {
+		t.Fatalf("GenerateList() error = %v", err)
+	}
+
+	// Must contain IPv4 section
+	if !strings.Contains(script, `/ip/firewall/address-list/remove [ find where list="v4only" ]`) {
+		t.Error("script does not contain IPv4 address-list remove command")
+	}
+	if !strings.Contains(script, `$v4onlyAddIP "192.168.1.1"`) {
+		t.Error("script does not contain IPv4 entry")
+	}
+
+	// Must NOT contain IPv6 section
+	if strings.Contains(script, `/ipv6/firewall/address-list`) {
+		t.Error("script should not contain IPv6 address-list commands for IPv4-only config")
+	}
+}
+
+func TestGenerator_GenerateListWithFormat_Nftables(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{
+			Timeout:       "1d",
+			CommentPrefix: "test",
+		},
+		Lists: map[string]config.List{
+			"nft": {
+				Addresses: []string{
+					"192.168.1.0/24",
+					"10.0.0.1",
+					"2001:db8::1",
+					"2001:db8:1::/48",
+				},
+			},
+		},
+	}
+
+	g := NewGenerator(cfg)
+
+	script, err := g.GenerateListWithFormat("nft", cfg.Lists["nft"], FormatNftables)
+	if err != nil {
+		t.Fatalf("GenerateListWithFormat() error = %v", err)
+	}
+
+	// Check IPv4 set
+	if !strings.Contains(script, "define nft_v4 = {") {
+		t.Error("script does not contain IPv4 nftables set definition")
+	}
+	if !strings.Contains(script, "192.168.1.0/24") {
+		t.Error("script does not contain IPv4 CIDR in v4 set")
+	}
+	if !strings.Contains(script, "10.0.0.1") {
+		t.Error("script does not contain IPv4 address in v4 set")
+	}
+
+	// Check IPv6 set
+	if !strings.Contains(script, "define nft_v6 = {") {
+		t.Error("script does not contain IPv6 nftables set definition")
+	}
+	if !strings.Contains(script, "2001:db8::1") {
+		t.Error("script does not contain IPv6 address in v6 set")
+	}
+	if !strings.Contains(script, "2001:db8:1::/48") {
+		t.Error("script does not contain IPv6 CIDR in v6 set")
 	}
 }
 
