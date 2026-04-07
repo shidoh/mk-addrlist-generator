@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 )
@@ -112,6 +113,7 @@ func DefaultOptions() GeneratorOptions {
 type Generator struct {
 	cfg        *config.Config
 	options    GeneratorOptions
+	mu         sync.RWMutex
 	httpClient *http.Client
 }
 
@@ -159,12 +161,16 @@ func NewGeneratorWithOptions(cfg *config.Config, options GeneratorOptions) *Gene
 
 // SetOptions updates generator options
 func (g *Generator) SetOptions(options GeneratorOptions) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.options = options
 	g.httpClient.Timeout = options.HTTPTimeout
 }
 
 // GetOptions returns current generator options
 func (g *Generator) GetOptions() GeneratorOptions {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
 	return g.options
 }
 

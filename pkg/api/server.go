@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"mk-addrlist-generator/pkg/config"
@@ -98,6 +99,7 @@ type Server struct {
 	cfg       *config.Config
 	serverCfg ServerConfig
 	generator *generator.Generator
+	genMu     sync.Mutex
 	router    *gin.Engine
 	server    *http.Server
 	logger    *slog.Logger
@@ -318,7 +320,8 @@ func (s *Server) HandleGetAllLists(c *gin.Context) {
 	aggregate := c.Query("aggregate") == "true"
 	deduplicate := c.DefaultQuery("deduplicate", "true") == "true"
 
-	// Update generator options
+	// Lock to prevent concurrent modification of generator options
+	s.genMu.Lock()
 	options := s.generator.GetOptions()
 	options.Aggregate = aggregate
 	options.Deduplicate = deduplicate
@@ -327,6 +330,7 @@ func (s *Server) HandleGetAllLists(c *gin.Context) {
 	start := time.Now()
 	script, err := s.generator.GenerateAllWithFormat(format)
 	duration := time.Since(start).Seconds()
+	s.genMu.Unlock()
 
 	if err != nil {
 		s.logger.Error("failed to generate all lists",
@@ -361,7 +365,8 @@ func (s *Server) HandleGetListByName(c *gin.Context) {
 		return
 	}
 
-	// Update generator options
+	// Lock to prevent concurrent modification of generator options
+	s.genMu.Lock()
 	options := s.generator.GetOptions()
 	options.Aggregate = aggregate
 	options.Deduplicate = deduplicate
@@ -370,6 +375,7 @@ func (s *Server) HandleGetListByName(c *gin.Context) {
 	start := time.Now()
 	script, err := s.generator.GenerateListWithFormat(name, list, format)
 	duration := time.Since(start).Seconds()
+	s.genMu.Unlock()
 
 	if err != nil {
 		s.logger.Error("failed to generate list",
