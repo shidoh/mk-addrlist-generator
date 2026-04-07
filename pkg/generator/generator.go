@@ -51,17 +51,27 @@ func ParseFormat(s string) OutputFormat {
 	}
 }
 
-const scriptTemplate = `
+const scriptTemplate = `{{if .IPv4Entries}}
 /ip/firewall/address-list/remove [ find where list="{{.ListName}}" ];
 :global {{.ListName}}AddIP;
 :set {{.ListName}}AddIP do={
 :do { /ip/firewall/address-list/add list={{.ListName}} address=$1 comment="$2" timeout=$3; } on-error={ }
 }
-{{range .Entries}}
+{{range .IPv4Entries}}
 ${{$.ListName}}AddIP "{{.Address}}" "{{.Comment}}" "{{.Timeout}}"{{end}}
 
 :set {{.ListName}}AddIP;
-`
+{{end}}{{if .IPv6Entries}}
+/ipv6/firewall/address-list/remove [ find where list="{{.ListName}}" ];
+:global {{.ListName}}AddIPv6;
+:set {{.ListName}}AddIPv6 do={
+:do { /ipv6/firewall/address-list/add list={{.ListName}} address=$1 comment="$2" timeout=$3; } on-error={ }
+}
+{{range .IPv6Entries}}
+${{$.ListName}}AddIPv6 "{{.Address}}" "{{.Comment}}" "{{.Timeout}}"{{end}}
+
+:set {{.ListName}}AddIPv6;
+{{end}}`
 
 const nftablesTemplate = `# nftables set definition for {{.ListName}}
 # Generated at {{.Timestamp}}
@@ -385,10 +395,26 @@ func (g *Generator) generateMikrotikOutput(name string, entries []Entry) (string
 		return "", fmt.Errorf("error parsing template: %v", err)
 	}
 
+	// Separate IPv4 and IPv6 entries
+	var ipv4Entries, ipv6Entries []Entry
+	for _, entry := range entries {
+		ipnet, err := netutil.ParseIPOrCIDR(entry.Address)
+		if err != nil {
+			continue // Skip invalid addresses
+		}
+		if ipnet.IsIPv4() {
+			ipv4Entries = append(ipv4Entries, entry)
+		} else {
+			ipv6Entries = append(ipv6Entries, entry)
+		}
+	}
+
 	data := ScriptData{
-		ListName:  name,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Entries:   entries,
+		ListName:    name,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Entries:     entries,
+		IPv4Entries: ipv4Entries,
+		IPv6Entries: ipv6Entries,
 	}
 
 	var buf bytes.Buffer

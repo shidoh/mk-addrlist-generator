@@ -133,6 +133,26 @@ func TestAggregate(t *testing.T) {
 			input: []string{"192.168.1.0/24", "192.168.1.0/24"},
 			want:  []string{"192.168.1.0/24"},
 		},
+		{
+			name:  "two adjacent IPv6 /64 networks",
+			input: []string{"2001:db8::/64", "2001:db8:0:1::/64"},
+			want:  []string{"2001:db8::/63"},
+		},
+		{
+			name:  "contained IPv6 network removed",
+			input: []string{"2001:db8::/32", "2001:db8:1::/48"},
+			want:  []string{"2001:db8::/32"},
+		},
+		{
+			name:  "mixed IPv4 and IPv6 aggregated independently",
+			input: []string{"192.168.0.0/24", "192.168.1.0/24", "2001:db8::/64", "2001:db8:0:1::/64"},
+			want:  []string{"192.168.0.0/23", "2001:db8::/63"},
+		},
+		{
+			name:  "non-adjacent IPv6 networks unchanged",
+			input: []string{"2001:db8::/48", "2001:db8:2::/48"},
+			want:  []string{"2001:db8::/48", "2001:db8:2::/48"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -183,6 +203,30 @@ func TestIPNet_Contains(t *testing.T) {
 			name:     "different networks",
 			parent:   "192.168.0.0/24",
 			child:    "10.0.0.0/24",
+			contains: false,
+		},
+		{
+			name:     "IPv6 parent contains child",
+			parent:   "2001:db8::/32",
+			child:    "2001:db8:1::/48",
+			contains: true,
+		},
+		{
+			name:     "IPv6 same network",
+			parent:   "2001:db8::/32",
+			child:    "2001:db8::/32",
+			contains: true,
+		},
+		{
+			name:     "IPv6 child larger than parent",
+			parent:   "2001:db8:1::/48",
+			child:    "2001:db8::/32",
+			contains: false,
+		},
+		{
+			name:     "IPv6 different networks",
+			parent:   "2001:db8::/32",
+			child:    "2001:db9::/32",
 			contains: false,
 		},
 	}

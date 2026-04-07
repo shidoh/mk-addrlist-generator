@@ -15,6 +15,8 @@ lists:
       - 172.16.1.0/24
       - 8.8.8.8
       - 172.27.0.0/21
+      - 2001:db8::1
+      - 2001:db8::/32
 
   allowlist:
     timeout: 24h
@@ -28,3 +30,11 @@ lists:
     commentPrefix: "External blocklist"
     urls:
       - https://example.com/threats.txt
+
+  ipv6_only_list:
+    timeout: 2h
+    commentPrefix: "IPv6 addresses"
+    addresses:
+      - 2001:db8:1::/48
+      - 2001:db8:2::1
+      - 2001:db8:3:4::/64
