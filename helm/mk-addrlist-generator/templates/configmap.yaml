@@ -6,11 +6,13 @@ metadata:
     {{- include "mk-addrlist-generator.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    output_format: {{ .Values.config.outputFormat }}
-    log_level: {{ .Values.config.logLevel }}
-    server:
-      port: {{ .Values.config.server.port }}
-      metrics_enabled: {{ .Values.config.server.metricsEnabled }}
+    config:
+      {{- if .Values.config.timeout }}
+      timeout: {{ .Values.config.timeout | quote }}
+      {{- end }}
+      {{- if .Values.config.commentPrefix }}
+      commentPrefix: {{ .Values.config.commentPrefix | quote }}
+      {{- end }}
     {{- if .Values.config.lists }}
     lists:
       {{- toYaml .Values.config.lists | nindent 6 }}

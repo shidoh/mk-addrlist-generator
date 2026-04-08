@@ -64,11 +64,42 @@ tolerations: []
 
 affinity: {}
 
-# Application configuration
+# Server runtime configuration (CLI flags for `serve` command)
+server:
+  listen: ":8080"
+  shutdownTimeout: "30s"
+  metrics: true
+  health: true
+  verbose: false
+
+# Application configuration (config.yaml content)
+# This maps directly to the Go Config struct:
+#   config:
+#     timeout: "1d"
+#     commentPrefix: "managed by mk-addrlist-generator"
+#   lists:
+#     my-list:
+#       timeout: "12h"
+#       commentPrefix: "custom prefix"
+#       urls: [...]
+#       files: [...]
+#       addresses: [...]
 config:
-  outputFormat: mikrotik
-  logLevel: info
-  server:
-    port: 8080
-    metricsEnabled: true
-  lists: []
+  # Global defaults applied to all lists
+  timeout: "1d"
+  commentPrefix: ""
+
+  # Address lists (map of name -> list config)
+  # Example:
+  #   cloudflare:
+  #     timeout: "1d"
+  #     urls:
+  #       - https://www.cloudflare.com/ips-v4
+  #       - https://www.cloudflare.com/ips-v6
+  #   private:
+  #     timeout: "0"
+  #     addresses:
+  #       - 10.0.0.0/8
+  #       - 172.16.0.0/12
+  #       - 192.168.0.0/16
+  lists: {}
