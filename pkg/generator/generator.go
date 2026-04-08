@@ -56,7 +56,11 @@ const scriptTemplate = `{{if .IPv4Entries}}
 /ip/firewall/address-list/remove [ find where list="{{.ListName}}" ];
 :global {{.ListName}}AddIP;
 :set {{.ListName}}AddIP do={
+:if ($3 != "") do={
 :do { /ip/firewall/address-list/add list={{.ListName}} address=$1 comment="$2" timeout=$3; } on-error={ }
+} else={
+:do { /ip/firewall/address-list/add list={{.ListName}} address=$1 comment="$2"; } on-error={ }
+}
 }
 {{range .IPv4Entries}}
 ${{$.ListName}}AddIP "{{.Address}}" "{{.Comment}}" "{{.Timeout}}"{{end}}
@@ -66,7 +70,11 @@ ${{$.ListName}}AddIP "{{.Address}}" "{{.Comment}}" "{{.Timeout}}"{{end}}
 /ipv6/firewall/address-list/remove [ find where list="{{.ListName}}" ];
 :global {{.ListName}}AddIPv6;
 :set {{.ListName}}AddIPv6 do={
+:if ($3 != "") do={
 :do { /ipv6/firewall/address-list/add list={{.ListName}} address=$1 comment="$2" timeout=$3; } on-error={ }
+} else={
+:do { /ipv6/firewall/address-list/add list={{.ListName}} address=$1 comment="$2"; } on-error={ }
+}
 }
 {{range .IPv6Entries}}
 ${{$.ListName}}AddIPv6 "{{.Address}}" "{{.Comment}}" "{{.Timeout}}"{{end}}
@@ -270,6 +278,12 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 		return nil, fmt.Errorf("error getting timeout: %v", err)
 	}
 
+	// timeout == 0 means permanent entry (no timeout)
+	timeoutStr := ""
+	if timeout > 0 {
+		timeoutStr = timeout.String()
+	}
+
 	commentPrefix := list.GetCommentPrefix(g.cfg.Config)
 	entries := make([]Entry, 0)
 
@@ -295,7 +309,7 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 		entries = append(entries, Entry{
 			Address: addr,
 			Comment: fmt.Sprintf("%s/external", commentPrefix),
-			Timeout: timeout.String(),
+			Timeout: timeoutStr,
 		})
 	}
 
@@ -321,7 +335,7 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 		entries = append(entries, Entry{
 			Address: addr,
 			Comment: fmt.Sprintf("%s/file", commentPrefix),
-			Timeout: timeout.String(),
+			Timeout: timeoutStr,
 		})
 	}
 
@@ -340,7 +354,7 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 		entries = append(entries, Entry{
 			Address: addr,
 			Comment: fmt.Sprintf("%s/static", commentPrefix),
-			Timeout: timeout.String(),
+			Timeout: timeoutStr,
 		})
 	}
 

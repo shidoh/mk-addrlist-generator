@@ -94,6 +94,15 @@ func TestList_GetTimeout(t *testing.T) {
 			wantErr:  true,
 		},
 		{
+			name: "zero timeout (no timeout)",
+			list: List{
+				Timeout: "0",
+			},
+			defaults: ConfigDefaults{},
+			want:     0,
+			wantErr:  false,
+		},
+		{
 			name: "invalid timeout",
 			list: List{
 				Timeout: "invalid",

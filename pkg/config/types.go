@@ -49,6 +49,11 @@ func parseDuration(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("empty duration string")
 	}
 
+	// "0" means no timeout (permanent entry)
+	if s == "0" {
+		return 0, nil
+	}
+
 	// Regular expression to match duration components
 	re := regexp.MustCompile(`^(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$`)
 	matches := re.FindStringSubmatch(s)
