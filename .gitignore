@@ -48,3 +48,7 @@ Thumbs.db
 .worktrees/
 .security-key
 logs/security/
+
+.claude
+.AGENTS.md
+graphify-out
