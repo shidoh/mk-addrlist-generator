@@ -19,7 +19,7 @@ lists:
       - 2001:db8::/32
 
   allowlist:
-    timeout: 24h
+    timeout: 24h # use "0" here for entries that never expire
     commentPrefix: "Allowed networks"
     addresses:
       - 10.0.0.0/8

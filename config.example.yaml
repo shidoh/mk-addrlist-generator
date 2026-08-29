@@ -10,6 +10,8 @@ lists:
       - https://raw.githubusercontent.com/stamparm/ipsum/refs/heads/master/levels/4.txt
 
   fileslist:
+    # These paths are illustrative: the files must exist on the host running the
+    # service. They are NOT present inside the Docker image.
     timeout: 12h30m # Example of hours and minutes format
     commentPrefix: "crowdsecurity/local"
     files:
@@ -25,7 +27,7 @@ lists:
       - 172.27.0.0/21
 
   longterm:
-    timeout: 7d # Example of days format
+    timeout: 7d # Example of days format; use "0" for entries that never expire
     commentPrefix: "persistent"
     addresses:
       - 10.0.0.0/8
