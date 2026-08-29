@@ -354,3 +354,65 @@ func stringSliceEqual(a, b []string) bool {
 	}
 	return true
 }
+
+func TestGenerateList_DropsInvalidAddressesFromEveryFormat(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{Timeout: "1d", CommentPrefix: "test"},
+		Lists: map[string]config.List{
+			"mixed": {
+				Addresses: []string{
+					"1.2.3.4",
+					"not-an-ip",
+					`evil" ; /system reset-configuration no-defaults=yes; :local x "`,
+					"10.0.0.0/24",
+				},
+			},
+		},
+	}
+
+	g := NewGenerator(cfg)
+
+	for _, format := range AllFormats() {
+		t.Run(string(format), func(t *testing.T) {
+			out, err := g.GenerateListWithFormat("mixed", cfg.Lists["mixed"], format, DefaultRequestOptions())
+			if err != nil {
+				t.Fatalf("GenerateListWithFormat(%v) error = %v", format, err)
+			}
+			if strings.Contains(out, "not-an-ip") {
+				t.Errorf("output for format %v contains invalid address %q", format, "not-an-ip")
+			}
+			if strings.Contains(out, "reset-configuration") {
+				t.Errorf("output for format %v contains injected RouterOS command", format)
+			}
+			if !strings.Contains(out, "1.2.3.4") {
+				t.Errorf("output for format %v lost valid address 1.2.3.4", format)
+			}
+		})
+	}
+}
+
+func TestGenerateList_StatsCountOnlyValidEntries(t *testing.T) {
+	cfg := &config.Config{
+		Config: config.ConfigDefaults{Timeout: "1d", CommentPrefix: "test"},
+		Lists: map[string]config.List{
+			"mixed": {Addresses: []string{"1.2.3.4", "not-an-ip", "10.0.0.0/24"}},
+		},
+	}
+
+	g := NewGenerator(cfg)
+	if _, err := g.GenerateListWithFormat("mixed", cfg.Lists["mixed"], FormatPlain, DefaultRequestOptions()); err != nil {
+		t.Fatalf("GenerateListWithFormat() error = %v", err)
+	}
+
+	stats := g.GetStats()
+	stat, ok := stats["mixed"]
+	if !ok {
+		t.Fatal("GetStats() has no entry for list mixed")
+	}
+	if stat.TotalEntries != 2 {
+		t.Errorf("TotalEntries = %d, want 2 (invalid address must not be counted)", stat.TotalEntries)
+	}
+	if stat.InvalidEntries != 1 {
+		t.Errorf("InvalidEntries = %d, want 1", stat.InvalidEntries)
+	}
+}

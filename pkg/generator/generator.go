@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mk-addrlist-generator/pkg/config"
 	"mk-addrlist-generator/pkg/netutil"
 	"net/http"
@@ -131,7 +132,6 @@ func DefaultRequestOptions() RequestOptions {
 
 type Generator struct {
 	cfg        *config.Config
-	options    GeneratorOptions
 	mu         sync.RWMutex
 	httpClient *http.Client
 	statsCache map[string]ListStats
@@ -172,27 +172,11 @@ func NewGenerator(cfg *config.Config) *Generator {
 func NewGeneratorWithOptions(cfg *config.Config, options GeneratorOptions) *Generator {
 	return &Generator{
 		cfg:        cfg,
-		options:    options,
 		statsCache: make(map[string]ListStats),
 		httpClient: &http.Client{
 			Timeout: options.HTTPTimeout,
 		},
 	}
-}
-
-// SetOptions updates generator options
-func (g *Generator) SetOptions(options GeneratorOptions) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.options = options
-	g.httpClient.Timeout = options.HTTPTimeout
-}
-
-// GetOptions returns current generator options
-func (g *Generator) GetOptions() GeneratorOptions {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.options
 }
 
 func (g *Generator) GenerateAll() (string, error) {
@@ -272,6 +256,42 @@ func (g *Generator) GenerateListWithFormat(name string, list config.List, format
 	}
 }
 
+// filterValidAddresses drops source lines that are not valid IP addresses or
+// CIDR networks and reports how many were dropped.
+//
+// Filtering happens here, before deduplication and aggregation, so that every
+// output format sees the same set of addresses. Skipping silently is dangerous:
+// the generated RouterOS script clears the address list before repopulating it,
+// so a source that turned into garbage would otherwise empty a live firewall
+// list while the request still reports success.
+func filterValidAddresses(listName, sourceType string, addresses []string) ([]string, int) {
+	valid := make([]string, 0, len(addresses))
+	var firstInvalid string
+
+	for _, addr := range addresses {
+		if _, err := netutil.ParseIPOrCIDR(addr); err != nil {
+			if firstInvalid == "" {
+				firstInvalid = addr
+			}
+			continue
+		}
+		valid = append(valid, addr)
+	}
+
+	invalid := len(addresses) - len(valid)
+	if invalid > 0 {
+		slog.Warn("skipped invalid addresses",
+			slog.String("list", listName),
+			slog.String("source_type", sourceType),
+			slog.Int("skipped", invalid),
+			slog.Int("kept", len(valid)),
+			slog.String("first_invalid", firstInvalid),
+		)
+	}
+
+	return valid, invalid
+}
+
 func (g *Generator) collectEntries(name string, list config.List, reqOpts RequestOptions) ([]Entry, error) {
 	timeout, err := list.GetTimeout(g.cfg.Config)
 	if err != nil {
@@ -296,6 +316,7 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 		}
 		urlAddresses = append(urlAddresses, addresses...)
 	}
+	urlAddresses, urlInvalid := filterValidAddresses(name, "url", urlAddresses)
 	if reqOpts.Deduplicate {
 		urlAddresses = netutil.DeduplicateStrings(urlAddresses)
 	}
@@ -322,6 +343,7 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 		}
 		fileAddresses = append(fileAddresses, addresses...)
 	}
+	fileAddresses, fileInvalid := filterValidAddresses(name, "file", fileAddresses)
 	if reqOpts.Deduplicate {
 		fileAddresses = netutil.DeduplicateStrings(fileAddresses)
 	}
@@ -340,7 +362,7 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 	}
 
 	// Process static addresses - with deduplication within source type
-	staticAddresses := list.Addresses
+	staticAddresses, staticInvalid := filterValidAddresses(name, "static", list.Addresses)
 	if reqOpts.Deduplicate {
 		staticAddresses = netutil.DeduplicateStrings(staticAddresses)
 	}
@@ -365,6 +387,8 @@ func (g *Generator) collectEntries(name string, list config.List, reqOpts Reques
 		FileEntries:   len(fileAddresses),
 		StaticEntries: len(staticAddresses),
 		TotalEntries:  len(urlAddresses) + len(fileAddresses) + len(staticAddresses),
+
+		InvalidEntries: urlInvalid + fileInvalid + staticInvalid,
 	}
 	g.mu.Lock()
 	g.statsCache[name] = stat
@@ -519,13 +543,16 @@ func readAddresses(r io.Reader) ([]string, error) {
 	return addresses, nil
 }
 
-// GetListStats returns statistics about a list
+// ListStats holds counts from the last successful generation of a list.
 type ListStats struct {
 	Name          string `json:"name"`
 	TotalEntries  int    `json:"total_entries"`
 	URLEntries    int    `json:"url_entries"`
 	FileEntries   int    `json:"file_entries"`
 	StaticEntries int    `json:"static_entries"`
+	// InvalidEntries counts source lines that were not valid IP addresses
+	// or CIDR networks and were therefore excluded from the output.
+	InvalidEntries int `json:"invalid_entries"`
 }
 
 // GetStats returns statistics for all lists.
