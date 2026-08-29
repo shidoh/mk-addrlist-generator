@@ -85,12 +85,15 @@ $EDITOR config.yaml
 ./mk-addrlist-generator serve -c config.yaml -l :8080
 ```
 
-Then point a router at it:
+Then pull a list onto a router by hand, to check the plumbing:
 
 ```
 /tool fetch url="http://server:8080/list/staticlist" mode=http dst-path=staticlist.rsc
 /import staticlist.rsc
 ```
+
+Do not put those two lines in a scheduled script — they fail silently. Use
+`routeros/fetch-list.rsc`, see [Fetching from RouterOS](#fetching-from-routeros).
 
 ## CLI Commands
 
@@ -572,6 +575,44 @@ route are recorded under `endpoint="unmatched"`.
 
 `mk_addrlist_list_entries_total` is refreshed when `/stats` is requested, not on
 every generation, so scraping `/metrics` alone leaves it at zero.
+
+## Fetching from RouterOS
+
+`routeros/fetch-list.rsc` is a ready script that downloads one list and imports
+it. Copy it onto the router, set the three values at the top, and drive it from
+the scheduler — one script and one scheduler entry per list:
+
+```
+/system/script/add name=fetch-blocklist \
+    source=[/file/get [find name="fetch-list.rsc"] contents]
+/system/scheduler/add name=fetch-blocklist start-time=startup interval=2h \
+    on-event="/system/script/run fetch-blocklist"
+```
+
+It is longer than a `fetch` followed by an `import` because that pair has three
+failure modes, and all three are silent:
+
+- **A failed fetch aborts the script.** `/tool fetch` raises on an unreachable
+  source, so the script stops on that line. Error handling written *after* the
+  fetch — the usual `:if ([:len [/file find name=$fileName]] > 0) do={...}
+  else={ :log error ... }` — never runs. The only trace is a bare
+  `script,error: executing script <name>` with no URL and no reason. The shipped
+  script wraps the fetch in `:onerror` instead.
+- **A router can boot before the source is reachable.** With
+  `start-time=startup` the first run happens while the network the generator
+  lives on may still be coming up — a VPN or overlay especially. Entries carrying
+  a `timeout` are dynamic and do not survive a reboot, so that list stays empty
+  until the next successful run: with `interval=12h`, half a day. The shipped
+  script retries for ten minutes by default.
+- **A leftover temp file gets re-imported.** If a run dies during import its
+  downloaded file survives, and the next failed fetch leaves it in place — so the
+  `:if` on file existence passes and yesterday's list is imported as if fresh.
+  The shipped script removes the file before fetching, not only after importing.
+
+An error from the generator, on the other hand, is safe on its own: `/tool fetch`
+raises on any non-200 status and writes nothing, so the JSON error body never
+reaches disk and `/import` is never reached. The retry loop treats it like an
+unreachable source, and the address list keeps the contents it already had.
 
 ## Using with ipset/iptables
 
