@@ -57,6 +57,8 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 3
   targetCPUUtilizationPercentage: 80
+  # Also supported by the HPA template, unset by default:
+  # targetMemoryUtilizationPercentage: 80
 
 nodeSelector: {}
 
@@ -90,6 +92,12 @@ config:
   commentPrefix: ""
 
   # Address lists (map of name -> list config)
+  #
+  # At least one list is REQUIRED: the service refuses to start with an empty
+  # map, so a deployment with the default values below ends in CrashLoopBackOff.
+  # List names must match ^[A-Za-z0-9_-]{1,64}$ and commentPrefix may not contain
+  # " ; $ { } \ or line breaks — both are substituted into RouterOS commands.
+  #
   # Example:
   #   cloudflare:
   #     timeout: "1d"
