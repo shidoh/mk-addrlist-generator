@@ -37,18 +37,5 @@ go.work
 ehthumbs.db
 Thumbs.db
 
-# Auto Claude data directory
-.auto-claude/
-
-# Auto Claude generated files
-.auto-claude
-.auto-claude-security.json
-.auto-claude-status
-.claude_settings.json
+# Local worktrees
 .worktrees/
-.security-key
-logs/security/
-
-.claude
-.AGENTS.md
-graphify-out
