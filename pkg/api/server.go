@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -128,6 +129,17 @@ func NewServerWithConfig(cfg *config.Config, serverCfg ServerConfig) *Server {
 		startTime: time.Now(),
 	}
 
+	// The http.Server is built here rather than in Start so that Stop and
+	// Shutdown never race with — or silently no-op before — a Start running in
+	// another goroutine.
+	s.server = &http.Server{
+		Handler:           s.router,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
 	// Add middleware
 	s.router.Use(s.loggingMiddleware())
 	s.router.Use(s.metricsMiddleware())
@@ -189,9 +201,12 @@ func (s *Server) loggingMiddleware() gin.HandlerFunc {
 func (s *Server) metricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		// Unmatched routes must not put the raw request path into a metric
+		// label: the label set is otherwise controlled by the caller and grows
+		// without bound.
 		path := c.FullPath()
 		if path == "" {
-			path = c.Request.URL.Path
+			path = "unmatched"
 		}
 
 		c.Next()
@@ -205,38 +220,29 @@ func (s *Server) metricsMiddleware() gin.HandlerFunc {
 }
 
 func (s *Server) Start(addr string) error {
-	s.server = &http.Server{
-		Addr:              addr,
-		Handler:           s.router,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
 
 	s.logger.Info("starting server",
-		slog.String("address", addr),
+		slog.String("address", listener.Addr().String()),
 		slog.String("version", Version),
 	)
 
-	return s.server.ListenAndServe()
+	return s.server.Serve(listener)
 }
 
 func (s *Server) Stop() error {
-	if s.server != nil {
-		s.logger.Info("stopping server")
-		return s.server.Close()
-	}
-	return nil
+	s.logger.Info("stopping server")
+	return s.server.Close()
 }
 
-// Shutdown gracefully shuts down the server
+// Shutdown gracefully shuts down the server. It is safe to call before Start:
+// a subsequent Start then refuses to serve and returns http.ErrServerClosed.
 func (s *Server) Shutdown(ctx context.Context) error {
-	if s.server != nil {
-		s.logger.Info("gracefully shutting down server")
-		return s.server.Shutdown(ctx)
-	}
-	return nil
+	s.logger.Info("gracefully shutting down server")
+	return s.server.Shutdown(ctx)
 }
 
 // HealthResponse represents the health check response

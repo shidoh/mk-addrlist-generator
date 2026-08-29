@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"mk-addrlist-generator/pkg/config"
 	"mk-addrlist-generator/pkg/generator"
 	"net/http"
@@ -9,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func TestServer_HandleGetAllLists(t *testing.T) {
@@ -538,4 +543,69 @@ func TestConcurrentHandlerAccess(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func testConfig() *config.Config {
+	return &config.Config{
+		Config: config.ConfigDefaults{Timeout: "1d", CommentPrefix: "test"},
+		Lists: map[string]config.List{
+			"test": {Addresses: []string{"192.168.1.1"}},
+		},
+	}
+}
+
+func TestShutdownBeforeStart_StopsServerFromServing(t *testing.T) {
+	server := NewServer(testConfig())
+
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- server.Start("127.0.0.1:0") }()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("Start() after Shutdown() = %v, want http.ErrServerClosed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start() kept serving after Shutdown() returned")
+	}
+}
+
+func TestMetricsMiddleware_CollapsesUnmatchedRoutesIntoOneLabel(t *testing.T) {
+	server := NewServer(testConfig())
+
+	bogus := []string{"/no-such-route-a", "/no-such-route-b", "/wp-login.php"}
+	for _, path := range bogus {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", path, nil)
+		server.router.ServeHTTP(w, req)
+	}
+
+	families, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatalf("Gather() error = %v", err)
+	}
+
+	endpoints := make(map[string]bool)
+	for _, mf := range families {
+		if mf.GetName() != "mk_addrlist_http_requests_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "endpoint" {
+					endpoints[l.GetValue()] = true
+				}
+			}
+		}
+	}
+
+	for _, path := range bogus {
+		if endpoints[path] {
+			t.Errorf("metric label endpoint=%q created from an unmatched route; label cardinality is attacker-controlled", path)
+		}
+	}
 }
