@@ -179,6 +179,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid config",
 			cfg: &Config{
+				Config: ConfigDefaults{Timeout: "1d"},
 				Lists: map[string]List{
 					"test": {
 						URLs: []string{"https://example.com"},
@@ -190,6 +191,7 @@ func TestValidateConfig(t *testing.T) {
 		{
 			name: "valid config with multiple sources",
 			cfg: &Config{
+				Config: ConfigDefaults{Timeout: "1d"},
 				Lists: map[string]List{
 					"test": {
 						URLs:      []string{"https://example.com"},
@@ -254,5 +256,68 @@ func TestValidateConfig(t *testing.T) {
 				t.Errorf("ValidateConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateConfig_RejectsUnresolvableTimeout(t *testing.T) {
+	cfg := &Config{
+		Lists: map[string]List{
+			"blocklist": {Addresses: []string{"1.2.3.4"}},
+		},
+	}
+
+	if err := ValidateConfig(cfg); err == nil {
+		t.Fatal("ValidateConfig() = nil, want error: no timeout in list or defaults")
+	}
+}
+
+func TestValidateConfig_RejectsUnsafeListName(t *testing.T) {
+	cfg := &Config{
+		Config: ConfigDefaults{Timeout: "1d"},
+		Lists: map[string]List{
+			`evil"; :log info "pwn`: {Addresses: []string{"1.2.3.4"}},
+		},
+	}
+
+	if err := ValidateConfig(cfg); err == nil {
+		t.Fatal("ValidateConfig() = nil, want error for list name with RouterOS metacharacters")
+	}
+}
+
+func TestValidateConfig_RejectsUnsafeCommentPrefix(t *testing.T) {
+	tests := map[string]string{
+		"quote":   `bad" ; /system reboot; :local x "`,
+		"newline": "bad\nprefix",
+		"dollar":  "bad$prefix",
+	}
+
+	for name, prefix := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := &Config{
+				Config: ConfigDefaults{Timeout: "1d"},
+				Lists: map[string]List{
+					"blocklist": {CommentPrefix: prefix, Addresses: []string{"1.2.3.4"}},
+				},
+			}
+
+			if err := ValidateConfig(cfg); err == nil {
+				t.Fatalf("ValidateConfig() = nil, want error for commentPrefix %q", prefix)
+			}
+		})
+	}
+}
+
+func TestValidateConfig_AcceptsRealWorldNamesAndPrefixes(t *testing.T) {
+	cfg := &Config{
+		Config: ConfigDefaults{Timeout: "4h", CommentPrefix: "Default comment"},
+		Lists: map[string]List{
+			"rknBlocklist":   {CommentPrefix: "crowdsecurity/external", Addresses: []string{"1.2.3.4"}},
+			"ipv6_only_list": {CommentPrefix: "IPv6 addresses", Addresses: []string{"2001:db8::1"}},
+			"allow-list":     {Addresses: []string{"10.0.0.0/8"}},
+		},
+	}
+
+	if err := ValidateConfig(cfg); err != nil {
+		t.Fatalf("ValidateConfig() = %v, want nil", err)
 	}
 }

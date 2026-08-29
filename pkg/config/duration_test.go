@@ -81,3 +81,29 @@ func TestParseDuration(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDuration_RejectsOutOfRangeComponents(t *testing.T) {
+	tests := []string{
+		"1000000000d",
+		"99999999999999999999d",
+		"9223372036854775807s",
+	}
+
+	for _, s := range tests {
+		t.Run(s, func(t *testing.T) {
+			got, err := parseDuration(s)
+			if err == nil {
+				t.Fatalf("parseDuration(%q) = %v, want error", s, got)
+			}
+		})
+	}
+}
+
+func TestParseDuration_NeverReturnsNegative(t *testing.T) {
+	for _, s := range []string{"1000000000d", "9223372036854775807s", "1d", "12h30m"} {
+		got, err := parseDuration(s)
+		if err == nil && got < 0 {
+			t.Errorf("parseDuration(%q) = %v, want non-negative duration", s, got)
+		}
+	}
+}
