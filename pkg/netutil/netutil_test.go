@@ -242,3 +242,46 @@ func TestIPNet_Contains(t *testing.T) {
 		})
 	}
 }
+
+func TestAggregate_KeepsOneCopyOfDuplicateNetworks(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []string
+		want  []string
+	}{
+		{
+			name:  "identical networks collapse to one",
+			input: []string{"10.0.0.0/8", "10.0.0.0/8"},
+			want:  []string{"10.0.0.0/8"},
+		},
+		{
+			name:  "duplicate host does not remove unrelated address",
+			input: []string{"1.2.3.4", "1.2.3.4", "9.9.9.9"},
+			want:  []string{"1.2.3.4/32", "9.9.9.9/32"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			networks := make([]*IPNet, 0, len(tt.input))
+			for _, s := range tt.input {
+				n, err := ParseIPOrCIDR(s)
+				if err != nil {
+					t.Fatalf("ParseIPOrCIDR(%q) error = %v", s, err)
+				}
+				networks = append(networks, n)
+			}
+
+			got := Aggregate(networks)
+
+			if len(got) != len(tt.want) {
+				t.Fatalf("Aggregate() = %v (len %d), want %v (len %d)", got, len(got), tt.want, len(tt.want))
+			}
+			for i, w := range tt.want {
+				if got[i].String() != w {
+					t.Errorf("Aggregate()[%d] = %v, want %v", i, got[i], w)
+				}
+			}
+		})
+	}
+}

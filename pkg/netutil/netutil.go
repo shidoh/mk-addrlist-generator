@@ -179,10 +179,17 @@ func removeContained(networks []*IPNet) []*IPNet {
 	for i, n := range networks {
 		contained := false
 		for j, other := range networks {
-			if i != j && other.Contains(n) {
-				contained = true
-				break
+			if i == j || !other.Contains(n) {
+				continue
 			}
+			// Identical networks contain each other. Without this check both
+			// copies would consider themselves contained and both would be
+			// dropped, silently removing the address from the list.
+			if j > i && n.Contains(other) {
+				continue
+			}
+			contained = true
+			break
 		}
 		if !contained {
 			result = append(result, n)
